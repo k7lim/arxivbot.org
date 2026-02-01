@@ -1,10 +1,13 @@
-"""Paper service for fetching and indexing arXiv papers using paper-qa."""
+"""Paper service for fetching arXiv papers and answering questions via direct context."""
 
+import gzip
+import io
 import logging
+import tarfile
 from datetime import datetime
-from pathlib import Path
 
-from paperqa import Docs, Settings as PQASettings
+import aiohttp
+import litellm
 
 from arxivbot.config import get_settings
 from arxivbot.services import db
@@ -15,19 +18,38 @@ logger = logging.getLogger(__name__)
 # Track indexing status per paper
 _indexing_status: dict[str, dict] = {}
 
-# Cache for Docs objects (in-memory, per paper)
-_docs_cache: dict[str, Docs] = {}
+# Cache for paper content (in-memory, per paper)
+_content_cache: dict[str, str] = {}
 
 
-def _get_pqa_settings() -> PQASettings:
-    """Build paper-qa settings from app config."""
-    settings = get_settings()
+def _extract_tex_from_tar(data: bytes) -> str:
+    """Extract and concatenate all .tex files from a tar.gz archive."""
+    tex_contents = []
 
-    return PQASettings(
-        llm=settings.llm_model,
-        summary_llm=settings.llm_model,
-        embedding=settings.embedding_model,
-    )
+    try:
+        # Try as tar.gz first
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+            for member in tar.getmembers():
+                if member.name.endswith(".tex") and member.isfile():
+                    f = tar.extractfile(member)
+                    if f:
+                        content = f.read().decode("utf-8", errors="replace")
+                        tex_contents.append(f"% === {member.name} ===\n{content}")
+    except tarfile.ReadError:
+        try:
+            # Maybe it's just gzipped (single file)
+            content = gzip.decompress(data).decode("utf-8", errors="replace")
+            tex_contents.append(content)
+        except Exception:
+            # Maybe it's a plain .tex file
+            try:
+                content = data.decode("utf-8", errors="replace")
+                if "\\documentclass" in content or "\\begin{document}" in content:
+                    tex_contents.append(content)
+            except Exception:
+                pass
+
+    return "\n\n".join(tex_contents)
 
 
 async def get_indexing_status(paper_id: str) -> dict:
@@ -36,7 +58,7 @@ async def get_indexing_status(paper_id: str) -> dict:
         return _indexing_status[paper_id]
 
     # Check if already in cache
-    if paper_id in _docs_cache:
+    if paper_id in _content_cache:
         return {"status": "complete", "progress": 100}
 
     # Check if paper exists in database
@@ -47,37 +69,41 @@ async def get_indexing_status(paper_id: str) -> dict:
     return {"status": "not_started", "progress": 0}
 
 
-async def index_paper(paper_id: str) -> Docs:
-    """Index a paper. Updates status as it progresses. Returns Docs instance."""
+async def fetch_paper_content(paper_id: str) -> str:
+    """Fetch TeX source for a paper. Returns the concatenated .tex content."""
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         raise ValueError(f"Invalid arXiv ID: {paper_id}")
 
-    # Return cached docs if available
-    if paper_id in _docs_cache:
-        logger.info(f"Paper {paper_id} already cached")
-        return _docs_cache[paper_id]
+    # Return cached content if available
+    if paper_id in _content_cache:
+        logger.info(f"Paper {paper_id} content cached")
+        return _content_cache[paper_id]
 
     _indexing_status[paper_id] = {"status": "fetching", "progress": 10}
 
     try:
-        # Ensure papers directory exists
-        papers_dir = Path("./data/papers")
-        papers_dir.mkdir(parents=True, exist_ok=True)
-
         _indexing_status[paper_id] = {"status": "downloading", "progress": 30}
 
-        # Get paper-qa settings
-        pqa_settings = _get_pqa_settings()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(parsed.src_url, allow_redirects=True) as resp:
+                if resp.status == 404:
+                    raise ValueError(f"No source available for {paper_id}")
+                if resp.status != 200:
+                    raise ValueError(f"Failed to fetch source: HTTP {resp.status}")
 
-        # Create Docs instance and add the paper
-        docs = Docs()
-        await docs.aadd_url(parsed.pdf_url, settings=pqa_settings)
+                data = await resp.read()
 
-        _indexing_status[paper_id] = {"status": "embedding", "progress": 70}
+        _indexing_status[paper_id] = {"status": "extracting", "progress": 60}
 
-        # Cache the docs
-        _docs_cache[paper_id] = docs
+        content = _extract_tex_from_tar(data)
+        if not content:
+            raise ValueError(f"No .tex files found in source for {paper_id}")
+
+        _indexing_status[paper_id] = {"status": "complete", "progress": 100}
+
+        # Cache the content
+        _content_cache[paper_id] = content
 
         # Save paper metadata to database
         paper = db.Paper(
@@ -89,15 +115,18 @@ async def index_paper(paper_id: str) -> Docs:
         )
         await db.upsert_paper(paper)
 
-        _indexing_status[paper_id] = {"status": "complete", "progress": 100}
-        logger.info(f"Successfully indexed paper {paper_id}")
-
-        return docs
+        logger.info(f"Successfully fetched paper {paper_id} ({len(content):,} chars)")
+        return content
 
     except Exception as e:
         _indexing_status[paper_id] = {"status": "error", "error": str(e)}
-        logger.error(f"Failed to index paper {paper_id}: {e}")
+        logger.error(f"Failed to fetch paper {paper_id}: {e}")
         raise
+
+
+async def index_paper(paper_id: str) -> str:
+    """Alias for fetch_paper_content for API compatibility."""
+    return await fetch_paper_content(paper_id)
 
 
 async def query_paper(
@@ -106,58 +135,110 @@ async def query_paper(
     chat_history: list[dict] | None = None,
 ) -> dict:
     """
-    Query a paper using paper-qa.
+    Query a paper using direct context.
 
     Returns:
-        dict with 'answer' and 'citations' keys
+        dict with 'answer' key
     """
-    parsed = parse_arxiv_id(paper_id)
-    if not parsed:
-        raise ValueError(f"Invalid arXiv ID: {paper_id}")
+    # Get paper content
+    content = await fetch_paper_content(paper_id)
 
-    # Get or create docs
-    docs = await index_paper(paper_id)
+    settings = get_settings()
 
-    # Get paper-qa settings
-    pqa_settings = _get_pqa_settings()
+    # Build messages for LLM
+    messages = [
+        {
+            "role": "system",
+            "content": f"""You are a helpful research assistant. Answer questions about the following scientific paper based on its LaTeX source.
 
-    # Build context from chat history if available
-    full_question = question
+<paper>
+{content}
+</paper>
+
+Instructions:
+- Answer questions accurately based on the paper content
+- Quote relevant passages when helpful
+- If something isn't in the paper, say so
+- Be concise but thorough""",
+        }
+    ]
+
+    # Add chat history if available
     if chat_history:
-        context = "\n".join(
-            f"{msg['role'].title()}: {msg['content']}" for msg in chat_history[-6:]
-        )
-        full_question = f"Previous conversation:\n{context}\n\nNew question: {question}"
+        for msg in chat_history[-10:]:  # Last 10 messages for context
+            messages.append({"role": msg["role"], "content": msg["content"]})
 
-    # Query the paper
-    session = await docs.aquery(full_question, settings=pqa_settings)
+    # Add current question
+    messages.append({"role": "user", "content": question})
 
-    # Extract citations from the result
-    citations = []
-    if session.contexts:
-        for ctx in session.contexts:
-            text_preview = ""
-            if hasattr(ctx, "text") and hasattr(ctx.text, "text"):
-                text_preview = ctx.text.text[:500]
-            elif hasattr(ctx, "context"):
-                text_preview = ctx.context[:500]
-
-            page = None
-            if hasattr(ctx, "text") and hasattr(ctx.text, "page"):
-                page = ctx.text.page
-
-            if text_preview:
-                citations.append({"text": text_preview, "page": page})
+    # Call LLM
+    response = await litellm.acompletion(
+        model=settings.llm_model,
+        messages=messages,
+    )
 
     return {
-        "answer": session.answer,
-        "citations": citations,
+        "answer": response.choices[0].message.content,
+        "citations": [],  # No citations in direct context mode
     }
+
+
+async def query_paper_stream(
+    paper_id: str,
+    question: str,
+    chat_history: list[dict] | None = None,
+):
+    """
+    Query a paper using direct context with streaming response.
+
+    Yields:
+        str chunks of the response
+    """
+    # Get paper content
+    content = await fetch_paper_content(paper_id)
+
+    settings = get_settings()
+
+    # Build messages for LLM
+    messages = [
+        {
+            "role": "system",
+            "content": f"""You are a helpful research assistant. Answer questions about the following scientific paper based on its LaTeX source.
+
+<paper>
+{content}
+</paper>
+
+Instructions:
+- Answer questions accurately based on the paper content
+- Quote relevant passages when helpful
+- If something isn't in the paper, say so
+- Be concise but thorough""",
+        }
+    ]
+
+    # Add chat history if available
+    if chat_history:
+        for msg in chat_history[-10:]:  # Last 10 messages for context
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Add current question
+    messages.append({"role": "user", "content": question})
+
+    # Call LLM with streaming
+    response = await litellm.acompletion(
+        model=settings.llm_model,
+        messages=messages,
+        stream=True,
+    )
+
+    async for chunk in response:
+        if chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
 
 
 async def fetch_paper_metadata(paper_id: str) -> dict | None:
     """Fetch paper metadata from arXiv API."""
-    import aiohttp
     import xml.etree.ElementTree as ET
 
     parsed = parse_arxiv_id(paper_id)

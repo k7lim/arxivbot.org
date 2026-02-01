@@ -15,13 +15,7 @@ cp .env.example .env
 # Edit .env and add your GEMINI_API_KEY
 ```
 
-### 3. Start Qdrant (Vector Database)
-
-```bash
-docker-compose up -d qdrant
-```
-
-### 4. Install and Run
+### 3. Install and Run
 
 ```bash
 # Install dependencies (creates .venv automatically)
@@ -31,7 +25,7 @@ uv sync
 uv run uvicorn arxivbot.main:app --reload
 ```
 
-### 5. Open in Browser
+### 4. Open in Browser
 
 Visit `http://localhost:8000/abs/2401.12345` (replace with any arXiv paper ID).
 
@@ -61,8 +55,6 @@ Click "Share" to copy the link. Anyone with the link can view and continue the c
 |----------|-------------|---------|
 | `GEMINI_API_KEY` | Google AI Studio API key | (required) |
 | `LLM_MODEL` | Chat model | `gemini/gemini-3-flash-preview` |
-| `EMBEDDING_MODEL` | Embedding model | `gemini/gemini-embedding-001` |
-| `QDRANT_URL` | Qdrant server URL | `http://localhost:6333` |
 | `DATABASE_PATH` | SQLite database path | `./data/arxivbot.db` |
 
 ## Docker Deployment
@@ -86,14 +78,13 @@ The app will be available at `http://localhost:8000`.
 │  ├─ /pdf/{paper_id}  → Redirect to /abs/{paper_id}      │
 │  ├─ /chat/{slug}     → Load existing chat (permalink)   │
 │  ├─ /api/chat        → POST chat messages               │
-│  └─ /api/status/{id} → GET indexing progress            │
+│  └─ /api/status/{id} → GET fetch progress               │
 ├─────────────────────────────────────────────────────────┤
-│  Paper Service (paper-qa)                               │
-│  └─ Docs.aadd_url() → fetch/index PDF                   │
-│  └─ Docs.aquery()   → RAG query with citations          │
+│  Paper Service (direct context)                         │
+│  └─ Fetch TeX source from arXiv                         │
+│  └─ Full paper in LLM context (no RAG chunking)         │
 ├─────────────────────────────────────────────────────────┤
 │  Storage                                                │
-│  └─ Qdrant (Docker) → Vector store for embeddings       │
 │  └─ SQLite → Papers, chats, messages                    │
 └─────────────────────────────────────────────────────────┘
 ```

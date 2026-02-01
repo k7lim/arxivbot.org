@@ -19,6 +19,11 @@ class ArxivPaper:
         return f"https://arxiv.org/pdf/{self.paper_id}.pdf"
 
     @property
+    def src_url(self) -> str:
+        """Get the TeX source URL for this paper."""
+        return f"https://arxiv.org/src/{self.paper_id}"
+
+    @property
     def abs_url(self) -> str:
         """Get the abstract page URL for this paper."""
         return f"https://arxiv.org/abs/{self.paper_id}"

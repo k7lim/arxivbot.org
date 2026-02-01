@@ -20,10 +20,6 @@ class Settings(BaseSettings):
 
     # Model configuration
     llm_model: str = "gemini/gemini-3-flash-preview"
-    embedding_model: str = "gemini/gemini-embedding-001"
-
-    # Qdrant
-    qdrant_url: str = "http://localhost:6333"
 
     # Database
     database_path: Path = Path("./data/arxivbot.db")

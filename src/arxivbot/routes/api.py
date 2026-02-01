@@ -1,8 +1,10 @@
 """API routes for chat functionality."""
 
+import json
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from arxivbot.services import chat_service, paper_service
@@ -102,6 +104,77 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error(f"Error querying paper: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Send a message and get a streaming response via SSE.
+
+    If chat_slug is None, creates a new chat.
+    Otherwise, continues an existing chat.
+    """
+    # Validate paper ID
+    parsed = parse_arxiv_id(request.paper_id)
+    if not parsed:
+        raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {request.paper_id}")
+
+    # Get or create chat
+    chat = None
+    if request.chat_slug:
+        chat = await chat_service.get_chat_by_slug(request.chat_slug)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        if chat.paper_id != request.paper_id:
+            raise HTTPException(status_code=400, detail="Paper ID mismatch")
+
+    # Get chat history for context
+    chat_history = []
+    if chat:
+        messages = await chat_service.get_messages(chat.id)
+        chat_history = [{"role": m.role, "content": m.content} for m in messages]
+
+    # Create new chat if needed
+    if not chat:
+        chat = await chat_service.create_chat(request.paper_id, request.message)
+
+    # Save user message
+    await chat_service.add_message(chat.id, "user", request.message)
+
+    async def generate():
+        full_response = []
+        try:
+            # Send chat slug first
+            yield f"data: {json.dumps({'type': 'meta', 'chat_slug': chat.slug})}\n\n"
+
+            # Stream the response
+            async for chunk in paper_service.query_paper_stream(
+                paper_id=request.paper_id,
+                question=request.message,
+                chat_history=chat_history,
+            ):
+                full_response.append(chunk)
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+
+            # Save complete response to database
+            complete_response = "".join(full_response)
+            await chat_service.add_message(chat.id, "assistant", complete_response)
+
+            # Send done signal
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error in streaming response: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("/status/{paper_id:path}", response_model=StatusResponse)
