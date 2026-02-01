@@ -24,11 +24,11 @@ docker-compose up -d qdrant
 ### 4. Install and Run
 
 ```bash
-# Install dependencies
-pip install -e .
+# Install dependencies (creates .venv automatically)
+uv sync
 
 # Run the server
-uvicorn arxivbot.main:app --reload
+uv run uvicorn arxivbot.main:app --reload
 ```
 
 ### 5. Open in Browser
