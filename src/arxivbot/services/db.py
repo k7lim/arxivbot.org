@@ -7,7 +7,12 @@ from pathlib import Path
 
 import aiosqlite
 
-DATABASE_PATH = Path("./data/arxivbot.db")
+from arxivbot.config import get_settings
+
+
+def get_database_path() -> Path:
+    """Get database path from settings."""
+    return get_settings().database_path
 
 SCHEMA = """
 -- Papers (cached metadata)
@@ -72,7 +77,7 @@ class Message:
 
 async def init_db(db_path: Path | None = None) -> None:
     """Initialize the database with schema."""
-    path = db_path or DATABASE_PATH
+    path = db_path or get_database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(path) as db:
         await db.executescript(SCHEMA)
@@ -81,14 +86,14 @@ async def init_db(db_path: Path | None = None) -> None:
 
 async def get_connection(db_path: Path | None = None) -> aiosqlite.Connection:
     """Get a database connection."""
-    path = db_path or DATABASE_PATH
+    path = db_path or get_database_path()
     return await aiosqlite.connect(path)
 
 
 # Paper operations
 async def get_paper(paper_id: str, db_path: Path | None = None) -> Paper | None:
     """Get a paper by ID."""
-    async with aiosqlite.connect(db_path or DATABASE_PATH) as db:
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM papers WHERE id = ?", (paper_id,)
@@ -109,7 +114,7 @@ async def get_paper(paper_id: str, db_path: Path | None = None) -> Paper | None:
 
 async def upsert_paper(paper: Paper, db_path: Path | None = None) -> None:
     """Insert or update a paper."""
-    async with aiosqlite.connect(db_path or DATABASE_PATH) as db:
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
         await db.execute(
             """
             INSERT INTO papers (id, title, authors, abstract, indexed_at)
@@ -136,7 +141,7 @@ async def create_chat(
     slug: str, paper_id: str, db_path: Path | None = None
 ) -> Chat:
     """Create a new chat."""
-    async with aiosqlite.connect(db_path or DATABASE_PATH) as db:
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
         cursor = await db.execute(
             "INSERT INTO chats (slug, paper_id) VALUES (?, ?)",
             (slug, paper_id),
@@ -153,7 +158,7 @@ async def create_chat(
 
 async def get_chat_by_slug(slug: str, db_path: Path | None = None) -> Chat | None:
     """Get a chat by its slug."""
-    async with aiosqlite.connect(db_path or DATABASE_PATH) as db:
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM chats WHERE slug = ?", (slug,)
@@ -171,7 +176,7 @@ async def get_chat_by_slug(slug: str, db_path: Path | None = None) -> Chat | Non
 
 async def get_chat_by_id(chat_id: int, db_path: Path | None = None) -> Chat | None:
     """Get a chat by its ID."""
-    async with aiosqlite.connect(db_path or DATABASE_PATH) as db:
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM chats WHERE id = ?", (chat_id,)
@@ -192,7 +197,7 @@ async def add_message(
     chat_id: int, role: str, content: str, db_path: Path | None = None
 ) -> Message:
     """Add a message to a chat."""
-    async with aiosqlite.connect(db_path or DATABASE_PATH) as db:
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
         cursor = await db.execute(
             "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)",
             (chat_id, role, content),
@@ -210,7 +215,7 @@ async def add_message(
 async def get_messages(chat_id: int, db_path: Path | None = None) -> list[Message]:
     """Get all messages for a chat."""
     messages = []
-    async with aiosqlite.connect(db_path or DATABASE_PATH) as db:
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at",

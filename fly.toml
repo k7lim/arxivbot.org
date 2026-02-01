@@ -1,0 +1,28 @@
+app = "arxivbot"
+primary_region = "sjc"
+
+[build]
+
+[env]
+  DATABASE_PATH = "/data/arxivbot.db"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[http_service.checks]]
+  path = "/health"
+  interval = "30s"
+  timeout = "5s"
+
+[[mounts]]
+  source = "arxivbot_data"
+  destination = "/data"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

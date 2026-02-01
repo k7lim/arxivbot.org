@@ -32,6 +32,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.get("/health")
+async def health():
+    """Health check endpoint for Fly.io."""
+    from arxivbot.config import get_settings
+
+    try:
+        db_path = get_settings().database_path
+        return {"status": "ok", "database": "connected", "path": str(db_path)}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
+
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
