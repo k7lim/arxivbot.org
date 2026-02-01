@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArxivBot - Chat with arXiv Papers</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="home-container">
+        <h1>ArxivBot</h1>
+        <p class="tagline">Chat with any arXiv paper using AI</p>
+
+        <div class="how-to">
+            <h2>How to Use</h2>
+            <p>Simply change any <code>arxiv.org</code> URL to <code>arxivbot.org</code></p>
+
+            <div class="example">
+                <div class="url-transform">
+                    <span class="url old">https://<strong>arxiv</strong>.org/abs/2401.12345</span>
+                    <span class="arrow">→</span>
+                    <span class="url new">https://<strong>arxivbot</strong>.org/abs/2401.12345</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="try-it">
+            <h2>Try It</h2>
+            <form id="paper-form" onsubmit="return goToPaper(event)">
+                <input
+                    type="text"
+                    id="paper-input"
+                    placeholder="Enter arXiv ID (e.g., 2401.12345) or URL"
+                    autocomplete="off"
+                >
+                <button type="submit">Start Chat</button>
+            </form>
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <h3>Ask Questions</h3>
+                <p>Query the paper in natural language and get answers with citations</p>
+            </div>
+            <div class="feature">
+                <h3>Share Chats</h3>
+                <p>Every conversation gets a shareable permalink</p>
+            </div>
+            <div class="feature">
+                <h3>Multi-turn</h3>
+                <p>Continue the conversation with follow-up questions</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function goToPaper(event) {
+            event.preventDefault();
+            const input = document.getElementById('paper-input').value.trim();
+
+            // Extract arXiv ID from various formats
+            let paperId = input;
+
+            // Handle full URLs
+            const urlMatch = input.match(/arxiv\.org\/(?:abs|pdf)\/([^\s\/]+)/);
+            if (urlMatch) {
+                paperId = urlMatch[1].replace('.pdf', '');
+            }
+
+            // Handle arxiv: prefix
+            if (paperId.startsWith('arxiv:')) {
+                paperId = paperId.substring(6);
+            }
+
+            if (paperId) {
+                window.location.href = '/abs/' + paperId;
+            }
+            return false;
+        }
+    </script>
+</body>
+</html>
