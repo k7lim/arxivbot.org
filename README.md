@@ -27,7 +27,7 @@ uv run uvicorn arxivbot.main:app --reload
 
 ### 4. Open in Browser
 
-Visit `http://localhost:8000/abs/2401.12345` (replace with any arXiv paper ID).
+Visit `http://localhost:8000/abs/1706.03762` (replace with any arXiv paper ID).
 
 ## Usage
 
@@ -36,8 +36,8 @@ Visit `http://localhost:8000/abs/2401.12345` (replace with any arXiv paper ID).
 Change any arXiv URL from `arxiv.org` to `arxivbot.org`:
 
 ```
-https://arxiv.org/abs/2401.12345  →  https://arxivbot.org/abs/2401.12345
-https://arxiv.org/pdf/2401.12345  →  https://arxivbot.org/pdf/2401.12345
+https://arxiv.org/abs/1706.03762  →  https://arxivbot.org/abs/1706.03762
+https://arxiv.org/pdf/1706.03762  →  https://arxivbot.org/pdf/1706.03762
 ```
 
 ### Shareable Chats
