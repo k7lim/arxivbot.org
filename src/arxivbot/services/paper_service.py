@@ -3,6 +3,7 @@
 import gzip
 import io
 import logging
+import re
 import tarfile
 from datetime import datetime
 
@@ -20,6 +21,18 @@ _indexing_status: dict[str, dict] = {}
 
 # Cache for paper content (in-memory, per paper)
 _content_cache: dict[str, str] = {}
+
+# Cache for ar5iv HTML (in-memory, per paper)
+_ar5iv_cache: dict[str, str] = {}
+
+# Maximum content size to prevent OOM (500KB should be plenty for most papers)
+MAX_CONTENT_CHARS = 500_000
+
+# Maximum number of papers to cache (LRU-style, oldest evicted first)
+MAX_CACHE_SIZE = 5
+
+# Maximum ar5iv HTML cache size
+MAX_AR5IV_CACHE_SIZE = 3
 
 
 def _extract_tex_from_tar(data: bytes) -> str:
@@ -100,9 +113,21 @@ async def fetch_paper_content(paper_id: str) -> str:
         if not content:
             raise ValueError(f"No .tex files found in source for {paper_id}")
 
+        # Truncate very large papers to prevent OOM
+        if len(content) > MAX_CONTENT_CHARS:
+            logger.warning(
+                f"Paper {paper_id} content truncated from {len(content):,} to {MAX_CONTENT_CHARS:,} chars"
+            )
+            content = content[:MAX_CONTENT_CHARS] + "\n\n[... content truncated due to size ...]"
+
         _indexing_status[paper_id] = {"status": "complete", "progress": 100}
 
-        # Cache the content
+        # Cache the content (with size limit to prevent OOM)
+        if len(_content_cache) >= MAX_CACHE_SIZE:
+            # Evict oldest entry
+            oldest_key = next(iter(_content_cache))
+            del _content_cache[oldest_key]
+            logger.info(f"Evicted paper {oldest_key} from cache")
         _content_cache[paper_id] = content
 
         # Save paper metadata to database
@@ -157,9 +182,17 @@ async def query_paper(
 
 Instructions:
 - Answer questions accurately based on the paper content
-- Quote relevant passages when helpful
+- When referencing specific text from the paper, quote it using this exact format on its own line:
+  > "exact text from the paper"
+- Keep quotes concise (under 100 characters when possible)
+- Quote the exact wording from the paper, not a paraphrase
 - If something isn't in the paper, say so
-- Be concise but thorough""",
+- Be concise but thorough
+
+Example response format:
+The authors propose a novel approach to optimization. As stated in the paper:
+> "our method achieves 95% accuracy on the benchmark"
+This represents a significant improvement over prior work.""",
         }
     ]
 
@@ -211,9 +244,17 @@ async def query_paper_stream(
 
 Instructions:
 - Answer questions accurately based on the paper content
-- Quote relevant passages when helpful
+- When referencing specific text from the paper, quote it using this exact format on its own line:
+  > "exact text from the paper"
+- Keep quotes concise (under 100 characters when possible)
+- Quote the exact wording from the paper, not a paraphrase
 - If something isn't in the paper, say so
-- Be concise but thorough""",
+- Be concise but thorough
+
+Example response format:
+The authors propose a novel approach to optimization. As stated in the paper:
+> "our method achieves 95% accuracy on the benchmark"
+This represents a significant improvement over prior work.""",
         }
     ]
 
@@ -276,4 +317,97 @@ async def fetch_paper_metadata(paper_id: str) -> dict | None:
 
     except Exception as e:
         logger.error(f"Failed to fetch metadata for {paper_id}: {e}")
+        return None
+
+
+async def fetch_ar5iv_html(paper_id: str) -> str | None:
+    """
+    Fetch arXiv HTML for a paper, rewrite URLs to absolute, and inject bridge script.
+
+    Returns None if HTML is unavailable for this paper.
+    """
+    parsed = parse_arxiv_id(paper_id)
+    if not parsed:
+        return None
+
+    # Return cached HTML if available
+    if paper_id in _ar5iv_cache:
+        logger.info(f"arXiv HTML for {paper_id} served from cache")
+        return _ar5iv_cache[paper_id]
+
+    # Use official arXiv HTML (better rendering than ar5iv)
+    arxiv_html_url = f"https://arxiv.org/html/{paper_id}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(arxiv_html_url, allow_redirects=True) as resp:
+                if resp.status == 404:
+                    logger.warning(f"arXiv HTML not available for {paper_id}")
+                    return None
+                if resp.status != 200:
+                    logger.warning(f"arXiv returned HTTP {resp.status} for {paper_id}")
+                    return None
+
+                html = await resp.text()
+
+        # Rewrite relative URLs to absolute arXiv URLs
+        base_url = "https://arxiv.org"
+
+        # Remove <base> tag as it interferes with our proxy
+        html = re.sub(r'<base[^>]*/?>', '', html, flags=re.IGNORECASE)
+
+        # Rewrite href="/..." and src="/..."
+        html = re.sub(
+            r'(href|src)="(/[^"]*)"',
+            rf'\1="{base_url}\2"',
+            html,
+        )
+
+        # Rewrite url(/...) in inline styles
+        html = re.sub(
+            r'url\((/[^)]*)\)',
+            rf'url({base_url}\1)',
+            html,
+        )
+
+        # Inject our bridge script before </body>
+        bridge_script = """
+<script src="/static/ar5iv-bridge.js"></script>
+"""
+        html = html.replace('</body>', bridge_script + '</body>')
+
+        # Inject highlight CSS in <head>
+        highlight_css = """
+<style>
+.llm-highlight,
+.llm-highlight * {
+    background: #fff59d !important;
+    color: #000 !important;
+    outline: 2px solid #ffc107;
+    scroll-margin-top: 80px;
+}
+.llm-highlight-pulse,
+.llm-highlight-pulse * {
+    animation: llm-pulse 0.5s ease-in-out 2;
+}
+@keyframes llm-pulse {
+    0%, 100% { background: #fff59d !important; color: #000 !important; }
+    50% { background: #ffeb3b !important; color: #000 !important; }
+}
+</style>
+"""
+        html = html.replace('</head>', highlight_css + '</head>')
+
+        # Cache the HTML
+        if len(_ar5iv_cache) >= MAX_AR5IV_CACHE_SIZE:
+            oldest_key = next(iter(_ar5iv_cache))
+            del _ar5iv_cache[oldest_key]
+            logger.info(f"Evicted arXiv HTML for {oldest_key} from cache")
+        _ar5iv_cache[paper_id] = html
+
+        logger.info(f"Successfully fetched arXiv HTML for {paper_id} ({len(html):,} bytes)")
+        return html
+
+    except Exception as e:
+        logger.error(f"Failed to fetch arXiv HTML for {paper_id}: {e}")
         return None

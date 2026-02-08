@@ -106,3 +106,28 @@ async def home_page(request: Request):
             "request": request,
         },
     )
+
+
+@router.get("/ar5iv/{paper_id:path}", response_class=HTMLResponse)
+async def ar5iv_proxy(paper_id: str):
+    """
+    Proxy ar5iv HTML through our server.
+
+    This solves cross-origin issues and allows us to inject our bridge script.
+    """
+    # Validate paper ID
+    parsed = parse_arxiv_id(paper_id)
+    if not parsed:
+        raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {paper_id}")
+
+    # Fetch (or get cached) ar5iv HTML
+    html = await paper_service.fetch_ar5iv_html(paper_id)
+
+    if html is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"HTML view unavailable for paper {paper_id}. "
+            f"You can view the PDF at https://arxiv.org/pdf/{paper_id}"
+        )
+
+    return HTMLResponse(content=html)
