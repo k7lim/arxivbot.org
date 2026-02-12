@@ -282,16 +282,40 @@
             return messages[status] || 'Processing...';
         }
 
+        function addErrorWithRetry(errorText, retryMessage) {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.innerHTML = `<div class="message-content error-content">${escapeHtml(errorText)}<button class="retry-btn" onclick="retryMessage(this, ${JSON.stringify(retryMessage).replace(/"/g, '&quot;')})">Retry</button></div>`;
+            messagesContainer.appendChild(div);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function retryMessage(btn, message) {
+            // Remove the error message containing this button
+            const errorMsg = btn.closest('.message');
+            if (errorMsg) errorMsg.remove();
+
+            // Re-send the message (don't re-add user bubble, it's already there)
+            await doSendMessage(message, false);
+        }
+
         async function sendMessage(event) {
             event.preventDefault();
 
             const message = messageInput.value.trim();
             if (!message) return false;
 
-            // Add user message to UI
-            addMessage('user', message);
-            messageInput.value = '';
-            messageInput.style.height = 'auto';
+            await doSendMessage(message, true);
+            return false;
+        }
+
+        async function doSendMessage(message, addUserBubble) {
+            if (addUserBubble) {
+                addMessage('user', message);
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+            }
+
             messageInput.disabled = true;
             sendBtn.disabled = true;
 
@@ -322,8 +346,11 @@
                 if (!response.ok) {
                     const data = await response.json();
                     loadingDiv.remove();
-                    addMessage('assistant', `Error: ${data.detail || 'Failed to get response'}`);
-                    return false;
+                    addErrorWithRetry(`Error: ${data.detail || 'Failed to get response'}`, message);
+                    messageInput.disabled = false;
+                    sendBtn.disabled = false;
+                    messageInput.focus();
+                    return;
                 }
 
                 // Remove loading indicator and create assistant message div
@@ -339,6 +366,7 @@
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
+                let hasError = false;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -363,27 +391,28 @@
                                 contentDiv.textContent += data.content;
                                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
                             } else if (data.type === 'error') {
-                                contentDiv.textContent += `\n\nError: ${data.message}`;
+                                hasError = true;
+                                // Replace the partial response with an error + retry
+                                assistantDiv.remove();
+                                addErrorWithRetry(`Error: ${data.message}`, message);
                             }
                         }
                     }
                 }
 
-                // Process quotes after streaming completes
-                if (window.processQuotes) {
+                // Process quotes after streaming completes (only if no error)
+                if (!hasError && window.processQuotes) {
                     window.processQuotes(assistantDiv);
                 }
 
             } catch (error) {
                 loadingDiv.remove();
-                addMessage('assistant', `Error: ${error.message}`);
+                addErrorWithRetry(`Error: ${error.message}`, message);
             }
 
             messageInput.disabled = false;
             sendBtn.disabled = false;
             messageInput.focus();
-
-            return false;
         }
 
         function addMessage(role, content, citations = []) {

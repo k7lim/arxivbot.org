@@ -204,10 +204,11 @@ This represents a significant improvement over prior work.""",
     # Add current question
     messages.append({"role": "user", "content": question})
 
-    # Call LLM
+    # Call LLM (retry on transient errors like 503, 429)
     response = await litellm.acompletion(
         model=settings.llm_model,
         messages=messages,
+        num_retries=3,
     )
 
     return {
@@ -266,11 +267,12 @@ This represents a significant improvement over prior work.""",
     # Add current question
     messages.append({"role": "user", "content": question})
 
-    # Call LLM with streaming
+    # Call LLM with streaming (retry on transient errors like 503, 429)
     response = await litellm.acompletion(
         model=settings.llm_model,
         messages=messages,
         stream=True,
+        num_retries=3,
     )
 
     async for chunk in response:

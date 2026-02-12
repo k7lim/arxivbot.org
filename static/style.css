@@ -635,6 +635,29 @@ nav {
     text-decoration-style: solid;
 }
 
+/* Error messages with retry */
+.error-content {
+    color: var(--primary) !important;
+}
+
+.retry-btn {
+    display: inline-block;
+    margin-top: 0.5rem;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.retry-btn:hover {
+    background: var(--primary-dark);
+}
+
 /* Chat input */
 .chat-input-container {
     padding: 1rem 1.5rem;
