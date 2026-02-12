@@ -95,7 +95,7 @@ def extract_arxiv_id_from_path(path: str) -> str | None:
     """
     # Remove leading slash and common prefixes
     path = path.lstrip("/")
-    for prefix in ("abs/", "pdf/"):
+    for prefix in ("abs/", "pdf/", "html/"):
         if path.startswith(prefix):
             path = path[len(prefix) :]
             break

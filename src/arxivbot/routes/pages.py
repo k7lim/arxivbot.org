@@ -56,6 +56,12 @@ async def pdf_redirect(paper_id: str):
     return RedirectResponse(url=f"/abs/{paper_id}", status_code=302)
 
 
+@router.get("/html/{paper_id:path}")
+async def html_redirect(paper_id: str):
+    """Redirect /html/ URLs to /abs/ for the chat interface."""
+    return RedirectResponse(url=f"/abs/{paper_id}", status_code=302)
+
+
 @router.get("/chat/{slug}", response_class=HTMLResponse)
 async def load_chat_page(request: Request, slug: str):
     """Load an existing chat by its slug."""
