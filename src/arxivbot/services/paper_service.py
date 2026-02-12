@@ -154,23 +154,12 @@ async def index_paper(paper_id: str) -> str:
     return await fetch_paper_content(paper_id)
 
 
-async def query_paper(
-    paper_id: str,
+def _build_messages(
+    content: str,
     question: str,
     chat_history: list[dict] | None = None,
-) -> dict:
-    """
-    Query a paper using direct context.
-
-    Returns:
-        dict with 'answer' key
-    """
-    # Get paper content
-    content = await fetch_paper_content(paper_id)
-
-    settings = get_settings()
-
-    # Build messages for LLM
+) -> list[dict]:
+    """Build the LLM message list for querying a paper."""
     messages = [
         {
             "role": "system",
@@ -196,13 +185,28 @@ This represents a significant improvement over prior work.""",
         }
     ]
 
-    # Add chat history if available
     if chat_history:
         for msg in chat_history[-10:]:  # Last 10 messages for context
             messages.append({"role": msg["role"], "content": msg["content"]})
 
-    # Add current question
     messages.append({"role": "user", "content": question})
+    return messages
+
+
+async def query_paper(
+    paper_id: str,
+    question: str,
+    chat_history: list[dict] | None = None,
+) -> dict:
+    """
+    Query a paper using direct context.
+
+    Returns:
+        dict with 'answer' key
+    """
+    content = await fetch_paper_content(paper_id)
+    settings = get_settings()
+    messages = _build_messages(content, question, chat_history)
 
     # Call LLM (retry on transient errors like 503, 429)
     response = await litellm.acompletion(
@@ -228,44 +232,9 @@ async def query_paper_stream(
     Yields:
         str chunks of the response
     """
-    # Get paper content
     content = await fetch_paper_content(paper_id)
-
     settings = get_settings()
-
-    # Build messages for LLM
-    messages = [
-        {
-            "role": "system",
-            "content": f"""You are a helpful research assistant. Answer questions about the following scientific paper based on its LaTeX source.
-
-<paper>
-{content}
-</paper>
-
-Instructions:
-- Answer questions accurately based on the paper content
-- When referencing specific text from the paper, quote it using this exact format on its own line:
-  > "exact text from the paper"
-- Keep quotes concise (under 100 characters when possible)
-- Quote the exact wording from the paper, not a paraphrase
-- If something isn't in the paper, say so
-- Be concise but thorough
-
-Example response format:
-The authors propose a novel approach to optimization. As stated in the paper:
-> "our method achieves 95% accuracy on the benchmark"
-This represents a significant improvement over prior work.""",
-        }
-    ]
-
-    # Add chat history if available
-    if chat_history:
-        for msg in chat_history[-10:]:  # Last 10 messages for context
-            messages.append({"role": msg["role"], "content": msg["content"]})
-
-    # Add current question
-    messages.append({"role": "user", "content": question})
+    messages = _build_messages(content, question, chat_history)
 
     # Call LLM with streaming (retry on transient errors like 503, 429)
     response = await litellm.acompletion(
