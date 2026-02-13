@@ -3,10 +3,11 @@
 import json
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from arxivbot.limiter import limiter
 from arxivbot.services import chat_service, paper_service
 from arxivbot.utils.arxiv import parse_arxiv_id
 
@@ -17,6 +18,14 @@ router = APIRouter(prefix="/api")
 
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
+
+    paper_id: str
+    chat_slug: str | None = None
+    message: str
+
+
+class ChatRequestBody(BaseModel):
+    """Request body for chat endpoint (aliased to avoid conflict with FastAPI Request)."""
 
     paper_id: str
     chat_slug: str | None = None
@@ -47,7 +56,8 @@ class StatusResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+@limiter.limit("5/minute")
+async def chat(request: Request, body: ChatRequestBody):
     """
     Send a message and get a response.
 
@@ -55,17 +65,17 @@ async def chat(request: ChatRequest):
     Otherwise, continues an existing chat.
     """
     # Validate paper ID
-    parsed = parse_arxiv_id(request.paper_id)
+    parsed = parse_arxiv_id(body.paper_id)
     if not parsed:
-        raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {request.paper_id}")
+        raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {body.paper_id}")
 
     # Get or create chat
     chat = None
-    if request.chat_slug:
-        chat = await chat_service.get_chat_by_slug(request.chat_slug)
+    if body.chat_slug:
+        chat = await chat_service.get_chat_by_slug(body.chat_slug)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
-        if chat.paper_id != request.paper_id:
+        if chat.paper_id != body.paper_id:
             raise HTTPException(status_code=400, detail="Paper ID mismatch")
 
     # Get chat history for context
@@ -76,16 +86,16 @@ async def chat(request: ChatRequest):
 
     # Create new chat if needed
     if not chat:
-        chat = await chat_service.create_chat(request.paper_id, request.message)
+        chat = await chat_service.create_chat(body.paper_id, body.message)
 
     # Save user message
-    await chat_service.add_message(chat.id, "user", request.message)
+    await chat_service.add_message(chat.id, "user", body.message)
 
     try:
         # Query the paper
         result = await paper_service.query_paper(
-            paper_id=request.paper_id,
-            question=request.message,
+            paper_id=body.paper_id,
+            question=body.message,
             chat_history=chat_history,
         )
 
@@ -107,7 +117,8 @@ async def chat(request: ChatRequest):
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+@limiter.limit("5/minute")
+async def chat_stream(request: Request, body: ChatRequestBody):
     """
     Send a message and get a streaming response via SSE.
 
@@ -115,17 +126,17 @@ async def chat_stream(request: ChatRequest):
     Otherwise, continues an existing chat.
     """
     # Validate paper ID
-    parsed = parse_arxiv_id(request.paper_id)
+    parsed = parse_arxiv_id(body.paper_id)
     if not parsed:
-        raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {request.paper_id}")
+        raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {body.paper_id}")
 
     # Get or create chat
     chat = None
-    if request.chat_slug:
-        chat = await chat_service.get_chat_by_slug(request.chat_slug)
+    if body.chat_slug:
+        chat = await chat_service.get_chat_by_slug(body.chat_slug)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
-        if chat.paper_id != request.paper_id:
+        if chat.paper_id != body.paper_id:
             raise HTTPException(status_code=400, detail="Paper ID mismatch")
 
     # Get chat history for context
@@ -136,10 +147,10 @@ async def chat_stream(request: ChatRequest):
 
     # Create new chat if needed
     if not chat:
-        chat = await chat_service.create_chat(request.paper_id, request.message)
+        chat = await chat_service.create_chat(body.paper_id, body.message)
 
     # Save user message
-    await chat_service.add_message(chat.id, "user", request.message)
+    await chat_service.add_message(chat.id, "user", body.message)
 
     async def generate():
         full_response = []
@@ -149,8 +160,8 @@ async def chat_stream(request: ChatRequest):
 
             # Stream the response
             async for chunk in paper_service.query_paper_stream(
-                paper_id=request.paper_id,
-                question=request.message,
+                paper_id=body.paper_id,
+                question=body.message,
                 chat_history=chat_history,
             ):
                 full_response.append(chunk)

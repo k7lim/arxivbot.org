@@ -3,9 +3,12 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi.errors import RateLimitExceeded
 
+from arxivbot.limiter import limiter
 from arxivbot.routes import api, pages
 from arxivbot.services.db import init_db
 
@@ -31,6 +34,29 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Attach limiter to app state
+app.state.limiter = limiter
+
+# Add SlowAPIMiddleware
+from slowapi.middleware import SlowAPIMiddleware
+
+app.add_middleware(SlowAPIMiddleware)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """Return JSON for rate limit errors instead of plain text."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Rate limit exceeded. Please wait a moment before trying again.",
+            "retry_after": exc.retry_after if hasattr(exc, "retry_after") else 60,
+        },
+        headers={
+            "Retry-After": str(exc.retry_after if hasattr(exc, "retry_after") else 60)
+        },
+    )
 
 
 @app.get("/health")

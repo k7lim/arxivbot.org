@@ -344,9 +344,20 @@
                 });
 
                 if (!response.ok) {
-                    const data = await response.json();
-                    loadingDiv.remove();
-                    addErrorWithRetry(`Error: ${data.detail || 'Failed to get response'}`, message);
+                    if (response.status === 429) {
+                        // Rate limited - show user-friendly message
+                        const data = await response.json();
+                        const retryAfter = data.retry_after || 60;
+                        loadingDiv.remove();
+                        addErrorWithRetry(
+                            `Rate limited — please wait a moment before trying again.`,
+                            message
+                        );
+                    } else {
+                        const data = await response.json();
+                        loadingDiv.remove();
+                        addErrorWithRetry(`Error: ${data.detail || 'Failed to get response'}`, message);
+                    }
                     messageInput.disabled = false;
                     sendBtn.disabled = false;
                     messageInput.focus();
