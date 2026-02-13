@@ -17,9 +17,11 @@ class Settings(BaseSettings):
 
     # Gemini API (default provider)
     gemini_api_key: str = ""
+    gemini_api_key_paid: str | None = None
 
     # Model configuration
     llm_model: str = "gemini/gemini-3-flash-preview"
+    llm_fallback_model: str = "gemini/gemini-2.5-flash-lite"
 
     # Database
     database_path: Path = Path("./data/arxivbot.db")

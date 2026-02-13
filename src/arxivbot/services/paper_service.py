@@ -9,6 +9,7 @@ from datetime import datetime
 
 import aiohttp
 import litellm
+from litellm import Router
 
 from arxivbot.config import get_settings
 from arxivbot.services import db
@@ -33,6 +34,53 @@ MAX_CACHE_SIZE = 5
 
 # Maximum ar5iv HTML cache size
 MAX_AR5IV_CACHE_SIZE = 3
+
+
+# Router setup for primary + fallback LLM providers
+def _create_router() -> Router:
+    """Create a litellm Router with optional fallback to paid tier."""
+    settings = get_settings()
+    model_list = [
+        {
+            "model_name": "gemini-primary",
+            "litellm_params": {
+                "model": settings.llm_model,
+                "api_key": settings.gemini_api_key,
+                "rpm": 10,
+            },
+        },
+    ]
+    # Only add fallback if paid key is configured
+    if settings.gemini_api_key_paid:
+        model_list.append(
+            {
+                "model_name": "gemini-fallback",
+                "litellm_params": {
+                    "model": settings.llm_fallback_model,
+                    "api_key": settings.gemini_api_key_paid,
+                    "rpm": 300,
+                },
+            }
+        )
+    return Router(
+        model_list=model_list,
+        fallbacks=[{"gemini-primary": ["gemini-fallback"]}] if settings.gemini_api_key_paid else [],
+        num_retries=2,
+        allowed_fails=1,
+        cooldown_time=60,
+    )
+
+
+# Module-level router instance (initialized on first use)
+_router: Router | None = None
+
+
+def _get_router() -> Router:
+    """Get or create the singleton Router instance."""
+    global _router
+    if _router is None:
+        _router = _create_router()
+    return _router
 
 
 def _extract_tex_from_tar(data: bytes) -> str:
@@ -208,11 +256,12 @@ async def query_paper(
     settings = get_settings()
     messages = _build_messages(content, question, chat_history)
 
-    # Call LLM (retry on transient errors like 503, 429)
-    response = await litellm.acompletion(
-        model=settings.llm_model,
+    # Call LLM via Router (handles fallback to paid tier on rate limits)
+    router = _get_router()
+    response = await router.acompletion(
+        model="gemini-primary",
         messages=messages,
-        num_retries=3,
+        num_retries=2,
     )
 
     return {
@@ -236,12 +285,13 @@ async def query_paper_stream(
     settings = get_settings()
     messages = _build_messages(content, question, chat_history)
 
-    # Call LLM with streaming (retry on transient errors like 503, 429)
-    response = await litellm.acompletion(
-        model=settings.llm_model,
+    # Call LLM via Router with streaming (handles fallback to paid tier on rate limits)
+    router = _get_router()
+    response = await router.acompletion(
+        model="gemini-primary",
         messages=messages,
         stream=True,
-        num_retries=3,
+        num_retries=2,
     )
 
     async for chunk in response:
