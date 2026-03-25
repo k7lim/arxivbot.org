@@ -163,7 +163,7 @@
         messageInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                document.getElementById('chat-form').dispatchEvent(new Event('submit'));
+                sendMessage(e);
             }
         });
 
