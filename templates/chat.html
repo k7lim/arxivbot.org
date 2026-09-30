@@ -173,11 +173,18 @@
         function setupIframe() {
             let iframeLoaded = false;
 
+            // The /ar5iv proxy is same-origin, so inspect the loaded document.
+            // Error pages carry <meta name="arxivbot-error">; an unreadable or
+            // empty document also counts as a failure.
             ar5ivIframe.addEventListener('load', function() {
                 iframeLoaded = true;
-                paperLoading.style.display = 'none';
-                paperError.style.display = 'none';
-                ar5ivIframe.style.display = 'block';
+                if (iframeHasPaper()) {
+                    paperLoading.style.display = 'none';
+                    paperError.style.display = 'none';
+                    ar5ivIframe.style.display = 'block';
+                } else {
+                    showPaperError();
+                }
             });
 
             ar5ivIframe.addEventListener('error', function() {
@@ -185,19 +192,18 @@
                     showPaperError();
                 }
             });
+        }
 
-            // Also handle HTTP errors via fetch check
-            fetch(`/ar5iv/${paperId}`, { method: 'HEAD' })
-                .then(response => {
-                    if (!response.ok && !iframeLoaded) {
-                        showPaperError();
-                    }
-                })
-                .catch(() => {
-                    if (!iframeLoaded) {
-                        showPaperError();
-                    }
-                });
+        function iframeHasPaper() {
+            try {
+                const doc = ar5ivIframe.contentDocument;
+                if (!doc || !doc.body || (!doc.body.childElementCount && !doc.body.textContent.trim())) {
+                    return false;
+                }
+                return !doc.querySelector('meta[name="arxivbot-error"]');
+            } catch (e) {
+                return false;
+            }
         }
 
         function showPaperError() {
