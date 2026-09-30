@@ -20,8 +20,23 @@ class Settings(BaseSettings):
     gemini_api_key_paid: str | None = None
 
     # Model configuration
-    llm_model: str = "gemini/gemini-3-flash-preview"
+    llm_model: str = "gemini/gemini-3.8-flash"
+    # Tried in order on the free key when the primary fails or is rate limited.
+    # Each model has its own free-tier quota (Flash: 5 RPM / 20 RPD each,
+    # Flash Lite: 15 RPM / 500 RPD each), so the chain multiplies daily capacity.
+    # Comma-separated; set to "" to disable.
+    llm_free_fallback_models: str = (
+        "gemini/gemini-3.7-flash,gemini/gemini-3.6-flash,gemini/gemini-3.5-flash,"
+        "gemini/gemini-3-flash-preview,gemini/gemini-3.5-flash-lite,gemini/gemini-3.1-flash-lite"
+    )
+    # Used with the paid key (GEMINI_API_KEY_PAID), after the free chain
     llm_fallback_model: str = "gemini/gemini-2.5-flash-lite"
+
+    @property
+    def free_fallback_models(self) -> list[str]:
+        """Free-tier fallback models in order, without blanks or the primary."""
+        models = [m.strip() for m in self.llm_free_fallback_models.split(",")]
+        return [m for m in models if m and m != self.llm_model]
 
     # Database
     database_path: Path = Path("./data/arxivbot.db")

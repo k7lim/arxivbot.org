@@ -48,6 +48,10 @@ MAX_PDF_PAGES = 300
 # Maximum number of papers to cache (LRU-style, oldest evicted first)
 MAX_CACHE_SIZE = 5
 
+# Retries per model before the Router moves to the next fallback. Kept low:
+# with a fallback chain, switching models beats waiting on a rate-limited one.
+LLM_NUM_RETRIES = 1
+
 # Maximum ar5iv HTML cache size
 MAX_AR5IV_CACHE_SIZE = 3
 
@@ -185,8 +189,17 @@ async def _read_capped(resp: aiohttp.ClientResponse, max_bytes: int) -> bytes:
 
 
 # Router setup for primary + fallback LLM providers
+def _free_tier_rpm(model: str) -> int:
+    """Free-tier requests/minute for a Gemini model (Flash Lite 15, others 5)."""
+    return 15 if "flash-lite" in model else 5
+
+
 def _create_router() -> Router:
-    """Create a litellm Router with optional fallback to paid tier."""
+    """Create a litellm Router: primary, then free-tier fallbacks, then the paid key.
+
+    Each free-tier model has its own quota, so falling back across models on
+    the same key keeps chat working after one model's daily limit is used up.
+    """
     settings = get_settings()
     model_list = [
         {
@@ -194,12 +207,27 @@ def _create_router() -> Router:
             "litellm_params": {
                 "model": settings.llm_model,
                 "api_key": settings.gemini_api_key,
-                "rpm": 10,
+                "rpm": _free_tier_rpm(settings.llm_model),
             },
         },
     ]
-    # Only add fallback if paid key is configured
+    fallback_names = []
+    for i, model in enumerate(settings.free_fallback_models, start=1):
+        name = f"gemini-free-{i}"
+        fallback_names.append(name)
+        model_list.append(
+            {
+                "model_name": name,
+                "litellm_params": {
+                    "model": model,
+                    "api_key": settings.gemini_api_key,
+                    "rpm": _free_tier_rpm(model),
+                },
+            }
+        )
+    # Only add the paid fallback if a paid key is configured
     if settings.gemini_api_key_paid:
+        fallback_names.append("gemini-fallback")
         model_list.append(
             {
                 "model_name": "gemini-fallback",
@@ -212,8 +240,8 @@ def _create_router() -> Router:
         )
     return Router(
         model_list=model_list,
-        fallbacks=[{"gemini-primary": ["gemini-fallback"]}] if settings.gemini_api_key_paid else [],
-        num_retries=2,
+        fallbacks=[{"gemini-primary": fallback_names}] if fallback_names else [],
+        num_retries=LLM_NUM_RETRIES,
         allowed_fails=1,
         cooldown_time=60,
     )
@@ -561,12 +589,12 @@ async def query_paper(
     settings = get_settings()
     messages = _build_messages(content, question, chat_history)
 
-    # Call LLM via Router (handles fallback to paid tier on rate limits)
+    # Call LLM via Router (falls back across models on errors and rate limits)
     router = _get_router()
     response = await router.acompletion(
         model="gemini-primary",
         messages=messages,
-        num_retries=2,
+        num_retries=LLM_NUM_RETRIES,
     )
 
     return {
@@ -590,13 +618,13 @@ async def query_paper_stream(
     settings = get_settings()
     messages = _build_messages(content, question, chat_history)
 
-    # Call LLM via Router with streaming (handles fallback to paid tier on rate limits)
+    # Call LLM via Router with streaming (falls back across models on errors and rate limits)
     router = _get_router()
     response = await router.acompletion(
         model="gemini-primary",
         messages=messages,
         stream=True,
-        num_retries=2,
+        num_retries=LLM_NUM_RETRIES,
     )
 
     async for chunk in response:

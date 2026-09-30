@@ -54,7 +54,9 @@ Click "Share" to copy the link. Anyone with the link can view and continue the c
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GEMINI_API_KEY` | Google AI Studio API key | (required) |
-| `LLM_MODEL` | Chat model | `gemini/gemini-3-flash-preview` |
+| `LLM_MODEL` | Primary chat model | `gemini/gemini-3.8-flash` |
+| `LLM_FREE_FALLBACK_MODELS` | Comma-separated models tried in order on the same key when the primary fails or is rate limited (each has its own free-tier quota) | 3.7, 3.6, 3.5, 3 Flash, then 3.5 and 3.1 Flash Lite |
+| `GEMINI_API_KEY_PAID` | Optional paid key, used last with `LLM_FALLBACK_MODEL` | (unset) |
 | `DATABASE_PATH` | SQLite database path | `./data/arxivbot.db` |
 
 ## Docker Deployment
