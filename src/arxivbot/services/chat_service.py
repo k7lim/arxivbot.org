@@ -46,6 +46,28 @@ async def add_message(chat_id: int, role: str, content: str) -> db.Message:
     return await db.add_message(chat_id=chat_id, role=role, content=content)
 
 
+async def save_turn(
+    user_message: str,
+    assistant_message: str,
+    chat: db.Chat | None = None,
+    paper_id: str | None = None,
+) -> str:
+    """
+    Persist a completed chat turn (user message + assistant reply) atomically.
+
+    If chat is None, a new chat for paper_id is created in the same transaction.
+    Returns the chat slug.
+    """
+    if chat is not None:
+        await db.save_turn(user_message, assistant_message, chat_id=chat.id)
+        return chat.slug
+    slug = generate_chat_slug(user_message)
+    await db.save_turn(
+        user_message, assistant_message, new_chat_slug=slug, paper_id=paper_id
+    )
+    return slug
+
+
 async def get_messages(chat_id: int) -> list[db.Message]:
     """Get all messages for a chat."""
     return await db.get_messages(chat_id)

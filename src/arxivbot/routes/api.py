@@ -5,7 +5,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from arxivbot.limiter import limiter
 from arxivbot.services import chat_service, paper_service
@@ -16,12 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
-class ChatRequest(BaseModel):
-    """Request body for chat endpoint."""
-
-    paper_id: str
-    chat_slug: str | None = None
-    message: str
+MAX_MESSAGE_LENGTH = 4000
 
 
 class ChatRequestBody(BaseModel):
@@ -30,6 +25,16 @@ class ChatRequestBody(BaseModel):
     paper_id: str
     chat_slug: str | None = None
     message: str
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Message must not be empty")
+        if len(v) > MAX_MESSAGE_LENGTH:
+            raise ValueError(f"Message must be at most {MAX_MESSAGE_LENGTH} characters")
+        return v
 
 
 class Citation(BaseModel):
@@ -63,6 +68,7 @@ async def chat(request: Request, body: ChatRequestBody):
 
     If chat_slug is None, creates a new chat.
     Otherwise, continues an existing chat.
+    Nothing is persisted unless the answer succeeds.
     """
     # Validate paper ID
     parsed = parse_arxiv_id(body.paper_id)
@@ -84,13 +90,6 @@ async def chat(request: Request, body: ChatRequestBody):
         messages = await chat_service.get_messages(chat.id)
         chat_history = [{"role": m.role, "content": m.content} for m in messages]
 
-    # Create new chat if needed
-    if not chat:
-        chat = await chat_service.create_chat(body.paper_id, body.message)
-
-    # Save user message
-    await chat_service.add_message(chat.id, "user", body.message)
-
     try:
         # Query the paper
         result = await paper_service.query_paper(
@@ -99,11 +98,13 @@ async def chat(request: Request, body: ChatRequestBody):
             chat_history=chat_history,
         )
 
-        # Save assistant response
-        await chat_service.add_message(chat.id, "assistant", result["answer"])
+        # Persist the turn (and the chat, if new) only once the answer succeeded
+        chat_slug = await chat_service.save_turn(
+            body.message, result["answer"], chat=chat, paper_id=body.paper_id
+        )
 
         return ChatResponse(
-            chat_slug=chat.slug,
+            chat_slug=chat_slug,
             response=result["answer"],
             citations=[
                 Citation(text=c["text"], page=c.get("page"))
@@ -124,6 +125,7 @@ async def chat_stream(request: Request, body: ChatRequestBody):
 
     If chat_slug is None, creates a new chat.
     Otherwise, continues an existing chat.
+    Nothing is persisted unless the answer succeeds.
     """
     # Validate paper ID
     parsed = parse_arxiv_id(body.paper_id)
@@ -145,19 +147,9 @@ async def chat_stream(request: Request, body: ChatRequestBody):
         messages = await chat_service.get_messages(chat.id)
         chat_history = [{"role": m.role, "content": m.content} for m in messages]
 
-    # Create new chat if needed
-    if not chat:
-        chat = await chat_service.create_chat(body.paper_id, body.message)
-
-    # Save user message
-    await chat_service.add_message(chat.id, "user", body.message)
-
     async def generate():
         full_response = []
         try:
-            # Send chat slug first
-            yield f"data: {json.dumps({'type': 'meta', 'chat_slug': chat.slug})}\n\n"
-
             # Stream the response
             async for chunk in paper_service.query_paper_stream(
                 paper_id=body.paper_id,
@@ -167,9 +159,14 @@ async def chat_stream(request: Request, body: ChatRequestBody):
                 full_response.append(chunk)
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
 
-            # Save complete response to database
+            # Persist the turn (and the chat, if new) only after a complete answer
             complete_response = "".join(full_response)
-            await chat_service.add_message(chat.id, "assistant", complete_response)
+            chat_slug = await chat_service.save_turn(
+                body.message, complete_response, chat=chat, paper_id=body.paper_id
+            )
+
+            # Send chat slug only once it exists in the database
+            yield f"data: {json.dumps({'type': 'meta', 'chat_slug': chat_slug})}\n\n"
 
             # Send done signal
             yield f"data: {json.dumps({'type': 'done'})}\n\n"

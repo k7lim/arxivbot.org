@@ -212,13 +212,49 @@ async def add_message(
         )
 
 
+async def save_turn(
+    user_content: str,
+    assistant_content: str,
+    chat_id: int | None = None,
+    new_chat_slug: str | None = None,
+    paper_id: str | None = None,
+    db_path: Path | None = None,
+) -> int:
+    """
+    Persist a user message and assistant reply in one transaction.
+
+    If chat_id is None, a chat row is created with new_chat_slug/paper_id
+    in the same transaction. Returns the chat id.
+    """
+    async with aiosqlite.connect(db_path or get_database_path()) as db:
+        try:
+            if chat_id is None:
+                cursor = await db.execute(
+                    "INSERT INTO chats (slug, paper_id) VALUES (?, ?)",
+                    (new_chat_slug, paper_id),
+                )
+                chat_id = cursor.lastrowid
+            await db.executemany(
+                "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)",
+                [
+                    (chat_id, "user", user_content),
+                    (chat_id, "assistant", assistant_content),
+                ],
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    return chat_id
+
+
 async def get_messages(chat_id: int, db_path: Path | None = None) -> list[Message]:
     """Get all messages for a chat."""
     messages = []
     async with aiosqlite.connect(db_path or get_database_path()) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at",
+            "SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at, id",
             (chat_id,),
         ) as cursor:
             async for row in cursor:
