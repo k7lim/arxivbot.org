@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ heading }} - ArxivBot</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="/" class="brand">ArxivBot</a>
+        </nav>
+    </header>
+
+    <div class="home-container">
+        <div class="hero">
+            <h1>{{ heading }}</h1>
+            <p class="tagline">{{ message }}</p>
+            <p><a href="https://arxiv.org/search/">Search arXiv</a> to find the paper you want.</p>
+        </div>
+
+        <div class="try-it">
+            <h2>Try another paper</h2>
+            {% include "_paper_form.html" %}
+        </div>
+    </div>
+
+    <script src="/static/paper-form.js"></script>
+</body>
+</html>

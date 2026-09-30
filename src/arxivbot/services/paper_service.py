@@ -99,6 +99,10 @@ class PaperFetchError(ValueError):
     """Fetch failure whose message is safe to show to users."""
 
 
+class PaperNotFound(Exception):
+    """arXiv answered successfully and has no paper (or version) with this ID."""
+
+
 class SourceTooLargeError(Exception):
     """A download or decompressed source exceeded its size cap. Never retried."""
 
@@ -633,7 +637,11 @@ async def query_paper_stream(
 
 
 async def fetch_paper_metadata(paper_id: str) -> dict | None:
-    """Fetch paper metadata from arXiv API."""
+    """Fetch paper metadata from arXiv API.
+
+    Raises PaperNotFound when arXiv answers 200 with no entry. Returns None for
+    an invalid ID or a transient failure (non-200, timeout, unparseable reply).
+    """
     import xml.etree.ElementTree as ET
 
     parsed = parse_arxiv_id(paper_id)
@@ -657,7 +665,7 @@ async def fetch_paper_metadata(paper_id: str) -> dict | None:
 
         entry = root.find("atom:entry", ns)
         if entry is None:
-            return None
+            raise PaperNotFound(paper_id)
 
         title = entry.find("atom:title", ns)
         summary = entry.find("atom:summary", ns)
@@ -669,6 +677,8 @@ async def fetch_paper_metadata(paper_id: str) -> dict | None:
             "authors": [a.text for a in authors] if authors else [],
         }
 
+    except PaperNotFound:
+        raise
     except Exception as e:
         logger.error(f"Failed to fetch metadata for {paper_id}: {e}")
         return None

@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from arxivbot.services import chat_service, paper_service
-from arxivbot.services.db import get_paper
+from arxivbot.services.db import Paper, get_paper, upsert_paper
 from arxivbot.utils.arxiv import parse_arxiv_id
 
 router = APIRouter()
@@ -33,7 +33,30 @@ async def new_chat_page(request: Request, paper_id: str):
 
     if not paper or not paper.title:
         # Fetch from arXiv API
-        metadata = await paper_service.fetch_paper_metadata(paper_id)
+        try:
+            metadata = await paper_service.fetch_paper_metadata(paper_id)
+        except paper_service.PaperNotFound:
+            return templates.TemplateResponse(
+                request,
+                "error.html",
+                {
+                    "status_code": 404,
+                    "heading": f"No arXiv paper with ID {paper_id}",
+                    "message": "Check the ID for typos, or look the paper up on arXiv.",
+                },
+                status_code=404,
+            )
+        if metadata:
+            # Store it so later views skip the arXiv API
+            await upsert_paper(
+                Paper(
+                    id=paper_id,
+                    title=metadata.get("title"),
+                    authors=metadata.get("authors"),
+                    abstract=metadata.get("abstract"),
+                    indexed_at=paper.indexed_at if paper else None,
+                )
+            )
 
     title = None
     if paper and paper.title:
@@ -93,7 +116,10 @@ async def load_chat_page(request: Request, slug: str):
     metadata = None
 
     if not paper or not paper.title:
-        metadata = await paper_service.fetch_paper_metadata(paper_id)
+        try:
+            metadata = await paper_service.fetch_paper_metadata(paper_id)
+        except paper_service.PaperNotFound:
+            metadata = None
 
     title = None
     if paper and paper.title:

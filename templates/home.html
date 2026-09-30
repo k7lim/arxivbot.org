@@ -38,15 +38,7 @@
 
         <div class="try-it">
             <h2>Try It</h2>
-            <form id="paper-form" onsubmit="return goToPaper(event)">
-                <input
-                    type="text"
-                    id="paper-input"
-                    placeholder="Enter arXiv ID (e.g., 1706.03762) or URL"
-                    autocomplete="off"
-                >
-                <button type="submit">Start Chat</button>
-            </form>
+            {% include "_paper_form.html" %}
         </div>
 
         <div class="features">
@@ -65,30 +57,6 @@
         </div>
     </div>
 
-    <script>
-        function goToPaper(event) {
-            event.preventDefault();
-            const input = document.getElementById('paper-input').value.trim();
-
-            // Extract arXiv ID from various formats
-            let paperId = input;
-
-            // Handle full URLs (arxiv.org, arxivbot.org, ar5iv.org)
-            const urlMatch = input.match(/(?:arxiv|arxivbot|ar5iv)(?:\.labs)?\.org\/(?:abs|pdf|html)\/([^\s\/]+)/);
-            if (urlMatch) {
-                paperId = urlMatch[1].replace('.pdf', '');
-            }
-
-            // Handle arxiv: prefix
-            if (paperId.startsWith('arxiv:')) {
-                paperId = paperId.substring(6);
-            }
-
-            if (paperId) {
-                window.location.href = '/abs/' + paperId;
-            }
-            return false;
-        }
-    </script>
+    <script src="/static/paper-form.js"></script>
 </body>
 </html>

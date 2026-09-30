@@ -138,9 +138,9 @@ async def upsert_paper(paper: Paper, db_path: Path | None = None) -> None:
             INSERT INTO papers (id, title, authors, abstract, indexed_at)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-                title = excluded.title,
-                authors = excluded.authors,
-                abstract = excluded.abstract,
+                title = COALESCE(excluded.title, papers.title),
+                authors = COALESCE(excluded.authors, papers.authors),
+                abstract = COALESCE(excluded.abstract, papers.abstract),
                 indexed_at = excluded.indexed_at
             """,
             (
