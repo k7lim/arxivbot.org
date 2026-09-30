@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
@@ -42,6 +42,25 @@ app.state.limiter = limiter
 from slowapi.middleware import SlowAPIMiddleware
 
 app.add_middleware(SlowAPIMiddleware)
+
+WWW_HOST = "www.arxivbot.org"
+APEX_ORIGIN = "https://arxivbot.org"
+
+
+@app.middleware("http")
+async def redirect_www_to_apex(request: Request, call_next):
+    """Redirect www.arxivbot.org to the apex domain so each page has one URL.
+
+    308 preserves method and body, so POSTs to www keep working. Every other
+    host (apex, arxivbot.fly.dev, internal health probes) passes through.
+    """
+    host = request.headers.get("host", "").split(":")[0].lower()
+    if host == WWW_HOST:
+        location = APEX_ORIGIN + request.url.path
+        if request.url.query:
+            location += "?" + request.url.query
+        return RedirectResponse(location, status_code=308)
+    return await call_next(request)
 
 
 @app.exception_handler(RateLimitExceeded)
