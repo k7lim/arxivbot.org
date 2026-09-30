@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ArxivBot - Chat with arXiv Papers</title>
     {% include "_meta.html" %}
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="{{ static_url('style.css') }}">
 </head>
 <body>
     <header>
@@ -77,7 +77,7 @@
     </div>
     </main>
 
-    <script src="/static/paper-form.js"></script>
+    <script src="{{ static_url('paper-form.js') }}"></script>
     <script>
         // Randomize: open one of the gallery papers at random
         document.getElementById('surprise-btn').addEventListener('click', function() {

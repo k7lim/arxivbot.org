@@ -1,6 +1,9 @@
 """Page routes for serving HTML pages."""
 
+import hashlib
+from functools import lru_cache
 from html import escape
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
@@ -19,6 +22,7 @@ from arxivbot.utils.arxiv import parse_arxiv_id
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+STATIC_DIR = Path("static")
 
 META_DESCRIPTION_MAX = 200
 
@@ -86,6 +90,23 @@ def _site_url() -> str:
 
 # Read by templates/_meta.html for absolute URLs (og:image)
 templates.env.globals["site_url"] = _site_url
+
+
+@lru_cache
+def _static_version(path: str) -> str:
+    """Short content hash of a static file, so each deploy's changes bust browser caches."""
+    try:
+        return hashlib.sha256((STATIC_DIR / path).read_bytes()).hexdigest()[:10]
+    except OSError:
+        return "0"
+
+
+def static_url(path: str) -> str:
+    """URL of a file in static/, versioned by its content."""
+    return f"/static/{path}?v={_static_version(path)}"
+
+
+templates.env.globals["static_url"] = static_url
 
 
 def _ask_prefill(request: Request) -> str:

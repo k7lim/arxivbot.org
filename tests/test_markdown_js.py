@@ -4,6 +4,7 @@ The renderer is a pure text -> HTML function, so it is exercised with node.
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -212,7 +213,7 @@ def test_chat_page_loads_markdown_script(client, monkeypatch):
     monkeypatch.setattr(paper_service, "fetch_paper_metadata", fetch_paper_metadata)
     resp = client.get("/abs/1706.03762")
     assert resp.status_code == 200
-    assert '<script src="/static/markdown.js"></script>' in resp.text
+    assert re.search(r'<script src="/static/markdown.js\?v=[0-9a-f]+"></script>', resp.text)
     # The renderer must be defined before quote-highlighter.js runs
     assert resp.text.index("/static/markdown.js") < resp.text.index(
         "/static/quote-highlighter.js"

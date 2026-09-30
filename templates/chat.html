@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if paper_title %}{{ paper_title }} - {% endif %}ArxivBot</title>
     {% include "_meta.html" %}
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="{{ static_url('style.css') }}">
 </head>
 <body>
     <div class="split-container">
@@ -163,10 +163,10 @@
         }
     </style>
 
-    <script src="/static/markdown.js"></script>
-    <script src="/static/followups.js"></script>
-    <script src="/static/quote-highlighter.js"></script>
-    <script src="/static/explain-selection.js"></script>
+    <script src="{{ static_url('markdown.js') }}"></script>
+    <script src="{{ static_url('followups.js') }}"></script>
+    <script src="{{ static_url('quote-highlighter.js') }}"></script>
+    <script src="{{ static_url('explain-selection.js') }}"></script>
     <script>
         const paperId = "{{ paper_id }}";
         const paperTitle = {{ (paper_title or ('arXiv ' ~ paper_id))|tojson }};

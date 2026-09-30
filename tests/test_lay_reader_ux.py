@@ -226,3 +226,19 @@ def test_split_follow_ups():
     assert none == {"body": "Just an answer.\n- a list\n", "questions": []}
     assert plain_heading == {"body": "Answer", "questions": ["One?", "Two?", "Three?"]}
     assert numbered["questions"] == ["One?", "Two?"]
+
+
+# Static assets carry a content hash so a deploy's CSS/JS changes reach returning visitors
+
+
+def test_static_assets_are_versioned_by_content(client, metadata):
+    import hashlib
+
+    for url in ("/", "/abs/1706.03762"):
+        text = client.get(url).text
+        refs = re.findall(r'(?:src|href)="/static/([\w.-]+\.(?:css|js))(\?v=[0-9a-f]+)?"', text)
+        assert refs
+        for name, version in refs:
+            digest = hashlib.sha256((STATIC / name).read_bytes()).hexdigest()[:10]
+            assert version == f"?v={digest}", name
+            assert client.get(f"/static/{name}{version}").status_code == 200
