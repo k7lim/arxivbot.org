@@ -120,11 +120,19 @@ def test_pdf_and_html_redirect_to_canonical(client, no_network):
 def test_status_uppercase_version_not_400(client, no_network):
     resp = client.get("/api/status/1706.03762V1")
     assert resp.status_code == 200
+    assert resp.json()["status"] == "not_started"
+    assert no_network["index"] == []
+    resp = client.post("/api/index/1706.03762V1?auto=1")
+    assert resp.status_code == 200
     assert no_network["index"] == ["1706.03762v1"]
 
 
 def test_status_subject_class_uses_canonical_id(client, no_network):
     resp = client.get("/api/status/math.AG/0211159")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "not_started"
+    assert no_network["index"] == []
+    resp = client.post("/api/index/math.AG/0211159?auto=1")
     assert resp.status_code == 200
     assert no_network["index"] == ["math/0211159"]
 

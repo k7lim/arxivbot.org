@@ -150,7 +150,7 @@
         }
 
         // Check indexing status on load
-        checkStatus();
+        startIndexing();
 
         // Setup iframe load handlers
         setupIframe();
@@ -290,6 +290,16 @@
                 await fetch(`/api/index/${paperId}`, { method: 'POST' });
             } catch (error) {
                 console.error('Retry indexing failed:', error);
+            }
+            checkStatus();
+        }
+
+        // GET /api/status is read-only; this POST is what starts indexing on page load.
+        async function startIndexing() {
+            try {
+                await fetch(`/api/index/${paperId}?auto=1`, { method: 'POST' });
+            } catch (error) {
+                console.error('Start indexing failed:', error);
             }
             checkStatus();
         }

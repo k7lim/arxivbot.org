@@ -197,11 +197,11 @@ async def chat_stream(request: Request, body: ChatRequestBody):
 
 
 @router.get("/status/{paper_id:path}", response_model=StatusResponse)
-async def get_status(paper_id: str, background_tasks: BackgroundTasks):
+async def get_status(paper_id: str):
     """
     Get the indexing status for a paper.
 
-    Also starts indexing in the background if not started.
+    Read-only: never starts indexing. POST /api/index/<id> is the only trigger.
     """
     # Validate paper ID
     parsed = parse_arxiv_id(paper_id)
@@ -211,15 +211,6 @@ async def get_status(paper_id: str, background_tasks: BackgroundTasks):
 
     status = await paper_service.get_indexing_status(paper_id)
 
-    # Start indexing in background if not started
-    if status["status"] == "not_started":
-        status = paper_service.mark_indexing_started(paper_id)
-        background_tasks.add_task(paper_service.index_paper, paper_id)
-    # Retry a failed fetch once the error cooldown has passed
-    elif paper_service.should_retry_after_error(status):
-        status = paper_service.mark_indexing_started(paper_id)
-        background_tasks.add_task(paper_service.index_paper, paper_id)
-
     return StatusResponse(
         status=status.get("status", "unknown"),
         progress=status.get("progress", 0),
@@ -228,8 +219,19 @@ async def get_status(paper_id: str, background_tasks: BackgroundTasks):
 
 
 @router.post("/index/{paper_id:path}")
-async def start_indexing(paper_id: str, background_tasks: BackgroundTasks):
-    """Start indexing a paper in the background."""
+@limiter.limit("10/minute")
+async def start_indexing(
+    request: Request,
+    paper_id: str,
+    background_tasks: BackgroundTasks,
+    auto: bool = False,
+):
+    """
+    Start indexing a paper in the background.
+
+    With auto (page load), a failed paper is only retried once its error
+    cooldown has passed. Without it (manual Retry), any error is retried.
+    """
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {paper_id}")
@@ -242,6 +244,9 @@ async def start_indexing(paper_id: str, background_tasks: BackgroundTasks):
 
     if status["status"] not in ("not_started", "error"):
         return {"message": "Indexing in progress"}
+
+    if auto and status["status"] == "error" and not paper_service.should_retry_after_error(status):
+        return {"message": "Retry cooldown active"}
 
     paper_service.mark_indexing_started(paper_id)
     background_tasks.add_task(paper_service.index_paper, paper_id)

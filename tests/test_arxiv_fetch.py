@@ -121,10 +121,10 @@ def test_user_agent_sent(sleeps):
     assert headers.get("User-Agent") == paper_service.ARXIV_USER_AGENT
 
 
-# --- /api/status recovery -----------------------------------------------------
+# --- /api/index?auto=1 recovery -----------------------------------------------------
 
 
-def test_status_error_after_cooldown_retriggers_indexing(client, monkeypatch):
+def test_auto_index_error_after_cooldown_retriggers_indexing(client, monkeypatch):
     calls = []
 
     async def fake_index(paper_id):
@@ -137,13 +137,18 @@ def test_status_error_after_cooldown_retriggers_indexing(client, monkeypatch):
         "error_at": time.time() - paper_service.ERROR_RETRY_COOLDOWN - 1,
     }
 
-    resp = client.get(f"/api/status/{PAPER_ID}")
+    resp = client.post(f"/api/index/{PAPER_ID}?auto=1")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "starting", "progress": 5, "error": None}
+    assert resp.json() == {"message": "Indexing started"}
     assert calls == [PAPER_ID]
+    assert client.get(f"/api/status/{PAPER_ID}").json() == {
+        "status": "starting",
+        "progress": 5,
+        "error": None,
+    }
 
 
-def test_status_error_within_cooldown_does_not_retrigger(client, monkeypatch):
+def test_auto_index_error_within_cooldown_does_not_retrigger(client, monkeypatch):
     calls = []
 
     async def fake_index(paper_id):
@@ -156,6 +161,9 @@ def test_status_error_within_cooldown_does_not_retrigger(client, monkeypatch):
         "error_at": time.time(),
     }
 
+    resp = client.post(f"/api/index/{PAPER_ID}?auto=1")
+    assert resp.status_code == 200
+    assert calls == []
     resp = client.get(f"/api/status/{PAPER_ID}")
     assert resp.status_code == 200
     assert resp.json() == {
