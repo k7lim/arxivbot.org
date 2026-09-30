@@ -1,7 +1,7 @@
 [project]
 name = "arxivbot"
 version = "0.1.0"
-description = "Chat with arXiv papers using paper-qa"
+description = "Chat with any arXiv paper using AI"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.109",

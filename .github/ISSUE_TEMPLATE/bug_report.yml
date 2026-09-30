@@ -1,0 +1,26 @@
+name: Bug report
+description: Something on arxivbot.org or in a local run doesn't work
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Paper or chat URL
+      placeholder: https://arxivbot.org/abs/1706.03762
+  - type: textarea
+    id: env
+    attributes:
+      label: Browser / device, or local setup
+      description: e.g. Safari on iPhone, or "local run, commit abc123"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Errors or logs
+      render: text

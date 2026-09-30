@@ -31,7 +31,7 @@ Rules:
 - Do NOT change `DATABASE_PATH` in `fly.toml` without updating the mount destination
 - Volume name: `arxivbot_data`
 
-**Every push to `main` deploys to production.** `.github/workflows/fly-deploy.yml` runs `flyctl deploy` on push, with no test step, so run the tests before you push. This includes docs-only and bd-only commits.
+**Every push to `main` deploys to production.** `.github/workflows/fly-deploy.yml` runs the test suite (`.github/workflows/ci.yml`) and then `flyctl deploy` on push, so a failing test blocks the deploy. Still run the tests before you push. This includes docs-only and bd-only commits.
 - Confirm the deploy: `gh run watch $(gh run list -L 1 --json databaseId -q '.[0].databaseId') --exit-status`, then `curl -sf https://arxivbot.org/health`.
 - `just deploy` does the same thing by hand and needs an authenticated `fly` CLI. Do not run it as well as pushing.
 - Protected-workspace agents have no `fly` login. Anything that needs `fly status`, `fly logs` or `fly machines list` is an owner step; say so in the close reason instead of guessing.

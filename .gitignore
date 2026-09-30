@@ -37,3 +37,10 @@ data/
 
 # External dependencies (if cloned locally)
 external/
+
+# OS
+.DS_Store
+
+# Local tool state
+.claude/settings.local.json
+.claude/worktrees/
