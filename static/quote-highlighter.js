@@ -200,7 +200,18 @@
     if (!messageEl.classList.contains("assistant")) return;
     if (messageEl.dataset.quotesProcessed) return;
 
-    linkifyQuotes(messageEl);
+    const contentEl = messageEl.querySelector(".message-content");
+    if (!contentEl || contentEl.classList.contains("error-content")) return;
+
+    if (typeof window.renderMarkdown === "function") {
+      // markdown.js escapes the text, renders the markdown and emits the
+      // .quote-link elements for > "..." lines itself.
+      contentEl.innerHTML = window.renderMarkdown(contentEl.textContent);
+      contentEl.classList.add("markdown");
+    } else {
+      // Renderer not loaded: keep the plain text and linkify quotes in place.
+      linkifyQuotes(messageEl);
+    }
     messageEl.dataset.quotesProcessed = "true";
   }
 
