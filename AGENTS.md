@@ -2,7 +2,20 @@
 
 ## Task Tracking
 
-Use bd as the source of truth for tasks. Do not maintain separate TODO lists unless asked.
+Two trackers, with different jobs. Do not maintain separate TODO lists unless asked.
+
+**GitHub Issues is the public backlog.** Anything an outside contributor could pick up or would want to know about goes there: user-visible bugs, features, roadmap. When unsure, use GitHub.
+
+**bd is agent working memory:**
+- the breakdown of a GitHub issue you are working on (`discovered-from` subtasks, blockers)
+- ops and prod-only tasks: Fly secrets, the production database, logs, certificates
+- spikes, brainstorms, UX review notes, and changes that come down to the owner's taste (voice, copy, branding)
+
+**How they connect:**
+- To work a GitHub issue, create a bead with `--external-ref gh-<N>` and put `Fixes #N` in the commit or PR so GitHub closes it.
+- Moving a bead to GitHub is one-way: create the issue, then `bd update <id> --external-ref gh-<N>` and close the bead with reason "Moved to GitHub #N".
+- Discoveries a contributor could do go to GitHub (`gh issue create`); discoveries that are part of your current work go in bd.
+- `.beads/issues.jsonl` is committed to a public repo. Never put secrets, security findings or personal data in bd; report vulnerabilities privately (see `SECURITY.md`).
 
 Start:
 - If possible, run `bd prime`.

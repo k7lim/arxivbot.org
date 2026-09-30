@@ -48,11 +48,11 @@ three jobs above. "Shipped" means it's in this pass.
 | 13 | [Branches](https://www.shapeof.ai/patterns/branches) (Governor) | 3 | A recipient's first question forks the shared chat (`fork: true`): the history is copied into a new chat and the original is untouched. Ownership is tracked in `localStorage`. | Shipped |
 | 14 | [Nudges](https://www.shapeof.ai/patterns/nudges) (Wayfinder) | 3 | Recipients see "Someone shared this conversation with you. Keep asking below..." with a "Start fresh" link. | Shipped |
 | 15 | [Randomize](https://www.shapeof.ai/patterns/randomize) (Wayfinder) | 1 | "Surprise me" on the home page opens a random gallery paper. | Shipped |
-| 16 | [Controls](https://www.shapeof.ai/patterns/controls) (Governor) | 2 | Stop button while an answer streams. | Follow-up issue |
-| 17 | [Regenerate](https://www.shapeof.ai/patterns/regenerate) (Prompt action) | 2 | "Try again" on the latest answer; needs a way to replace a saved turn. | Follow-up issue |
-| 18 | [Watermark](https://www.shapeof.ai/patterns/watermark) (Trust builder) | 3 | Opt-in link preview for a shared answer (question as og:title, answer card image). Chat previews are currently kept generic on purpose, so this needs an explicit opt-in. | Follow-up issue |
-| 19 | [Synthesis](https://www.shapeof.ai/patterns/synthesis) (Prompt action) | 2 | A running glossary of the terms explained so far in the chat. | Follow-up issue |
-| 20 | [Personality](https://www.shapeof.ai/patterns/personality) / [Name](https://www.shapeof.ai/patterns/name) (Identifier) | 1 | A consistent, friendly guide voice across empty states, errors and answers. | Follow-up issue |
+| 16 | [Controls](https://www.shapeof.ai/patterns/controls) (Governor) | 2 | Stop button while an answer streams. | [#8](https://github.com/k7lim/arxivbot.org/issues/8) |
+| 17 | [Regenerate](https://www.shapeof.ai/patterns/regenerate) (Prompt action) | 2 | "Try again" on the latest answer; needs a way to replace a saved turn. | [#10](https://github.com/k7lim/arxivbot.org/issues/10) |
+| 18 | [Watermark](https://www.shapeof.ai/patterns/watermark) (Trust builder) | 3 | Opt-in link preview for a shared answer (question as og:title, answer card image). Chat previews are currently kept generic on purpose, so this needs an explicit opt-in. | [#12](https://github.com/k7lim/arxivbot.org/issues/12) |
+| 19 | [Synthesis](https://www.shapeof.ai/patterns/synthesis) (Prompt action) | 2 | A running glossary of the terms explained so far in the chat. | [#11](https://github.com/k7lim/arxivbot.org/issues/11) |
+| 20 | [Personality](https://www.shapeof.ai/patterns/personality) / [Name](https://www.shapeof.ai/patterns/name) (Identifier) | 1 | A consistent, friendly guide voice across empty states, errors and answers. | Maintainer (bd `kfq`) |
 
 ## Considered and left out
 

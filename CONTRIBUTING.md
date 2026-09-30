@@ -52,10 +52,15 @@ Merging to `main` deploys to production automatically once tests pass, so keep P
 
 ## Issue tracking
 
-GitHub Issues is the place to report bugs and propose features. The maintainer also
-uses [beads](https://github.com/steveyegge/beads) (`bd`, stored in `.beads/`) to track work
-with coding agents; you don't need it to contribute, and please don't edit `.beads/` in PRs.
-`AGENTS.md` is the guide for those agents, not for human contributors.
+[GitHub Issues](https://github.com/k7lim/arxivbot.org/issues) is the backlog. Look for
+`good first issue` and `help wanted`; issues labelled `needs design` want an approach agreed
+in the comments before a PR.
+
+The maintainer also uses [beads](https://github.com/steveyegge/beads) (`bd`, stored in `.beads/`)
+as working notes for coding agents: subtasks of issues in progress, production ops, and
+brainstorms. Anything you could work on gets filed on GitHub, so you don't need `bd`, and
+please don't edit `.beads/` in PRs. `AGENTS.md` is the guide for those agents, not for
+human contributors.
 
 ## Security
 
