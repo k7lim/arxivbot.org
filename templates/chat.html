@@ -40,6 +40,16 @@
 
         <!-- Resize handle -->
         <div class="resize-handle" id="resize-handle"></div>
+        <script>
+            // Narrow screens start with the paper collapsed so the conversation gets
+            // the room. Runs before first paint, so the expanded pane never shows.
+            // Must match the 768px breakpoint in style.css.
+            if (window.matchMedia('(max-width: 768px)').matches) {
+                document.getElementById('paper-pane').classList.add('collapsed');
+                document.getElementById('resize-handle').classList.add('hidden');
+                document.getElementById('toggle-paper').setAttribute('aria-expanded', 'false');
+            }
+        </script>
 
         <!-- Right pane: chat interface -->
         <main class="chat-pane">
@@ -262,10 +272,22 @@
 
         function setupToggle() {
             togglePaperBtn.addEventListener('click', function() {
-                const collapsed = paperPane.classList.toggle('collapsed');
-                togglePaperBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-                resizeHandle.classList.toggle('hidden');
+                setPaperCollapsed(!paperPane.classList.contains('collapsed'));
             });
+
+            // A quote link highlights a passage in the paper, so the paper has to
+            // be visible. Capture phase: runs before quote-highlighter.js's handler.
+            document.addEventListener('click', function(e) {
+                if (e.target.closest && e.target.closest('.quote-link')) {
+                    setPaperCollapsed(false);
+                }
+            }, true);
+        }
+
+        function setPaperCollapsed(collapsed) {
+            paperPane.classList.toggle('collapsed', collapsed);
+            resizeHandle.classList.toggle('hidden', collapsed);
+            togglePaperBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         }
 
         function autoResize() {
