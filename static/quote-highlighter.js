@@ -83,9 +83,11 @@
         "g"
       );
 
-      const replacement = `$1"<a class="quote-link" data-quote="${escapeHtml(
-        quote
-      ).replace(/"/g, "&quot;")}" href="#">$2</a>"`;
+      const quoteAttr = escapeHtml(quote).replace(/"/g, "&quot;");
+      // Use a replacer function so "$" in the quote (e.g. LaTeX "$2^n$") is
+      // inserted literally instead of being treated as a replacement pattern.
+      const replacement = (match, prefix, body) =>
+        `${prefix}"<a class="quote-link" data-quote="${quoteAttr}" href="#">${body}</a>"`;
 
       html = html.replace(pattern1, replacement);
       html = html.replace(pattern2, replacement);

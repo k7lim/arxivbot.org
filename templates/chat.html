@@ -306,10 +306,18 @@
             return messages[status] || 'Processing...';
         }
 
-        function addErrorWithRetry(errorText, retryMessage) {
+        function addErrorWithRetry(errorText, messageToRetry) {
             const div = document.createElement('div');
             div.className = 'message assistant';
-            div.innerHTML = `<div class="message-content error-content">${escapeHtml(errorText)}<button class="retry-btn" onclick="retryMessage(this, ${JSON.stringify(retryMessage).replace(/"/g, '&quot;')})">Retry</button></div>`;
+            const content = document.createElement('div');
+            content.className = 'message-content error-content';
+            content.textContent = errorText;
+            const btn = document.createElement('button');
+            btn.className = 'retry-btn';
+            btn.textContent = 'Retry';
+            btn.addEventListener('click', () => retryMessage(btn, messageToRetry));
+            content.appendChild(btn);
+            div.appendChild(content);
             messagesContainer.appendChild(div);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
