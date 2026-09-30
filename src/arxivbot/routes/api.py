@@ -37,6 +37,13 @@ class ChatRequestBody(BaseModel):
         return v
 
 
+def _user_error_message(e: Exception) -> str:
+    """Error text safe to show users; hides raw LLM/provider exceptions."""
+    if isinstance(e, paper_service.PaperFetchError):
+        return str(e)
+    return "Something went wrong answering your question. Please try again."
+
+
 class Citation(BaseModel):
     """A citation from the paper."""
 
@@ -115,8 +122,8 @@ async def chat(request: Request, body: ChatRequestBody):
         )
 
     except Exception as e:
-        logger.error(f"Error querying paper: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Error querying paper: {e}")
+        raise HTTPException(status_code=500, detail=_user_error_message(e))
 
 
 @router.post("/chat/stream")
@@ -176,8 +183,8 @@ async def chat_stream(request: Request, body: ChatRequestBody):
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except Exception as e:
-            logger.error(f"Error in streaming response: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            logger.exception(f"Error in streaming response: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': _user_error_message(e)})}\n\n"
 
     return StreamingResponse(
         generate(),
@@ -206,8 +213,8 @@ async def get_status(paper_id: str, background_tasks: BackgroundTasks):
 
     # Start indexing in background if not started
     if status["status"] == "not_started":
+        status = paper_service.mark_indexing_started(paper_id)
         background_tasks.add_task(paper_service.index_paper, paper_id)
-        status = {"status": "starting", "progress": 5}
     # Retry a failed fetch once the error cooldown has passed
     elif paper_service.should_retry_after_error(status):
         status = paper_service.mark_indexing_started(paper_id)

@@ -168,3 +168,34 @@ def test_failure_on_existing_chat_adds_nothing_and_retry_is_clean(
         ("user", "second"),
         ("assistant", "second answer"),
     ]
+
+
+def test_llm_errors_are_not_exposed(client, monkeypatch):
+    async def query_paper(paper_id, question, chat_history=None):
+        raise RuntimeError("provider said: api_key=sk-secret")
+
+    async def query_paper_stream(paper_id, question, chat_history=None):
+        raise RuntimeError("provider said: api_key=sk-secret")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(paper_service, "query_paper", query_paper)
+    monkeypatch.setattr(paper_service, "query_paper_stream", query_paper_stream)
+
+    resp = client.post("/api/chat", json={"paper_id": PAPER_ID, "message": "hi"})
+    assert resp.status_code == 500
+    assert "sk-secret" not in resp.text
+
+    resp = client.post("/api/chat/stream", json={"paper_id": PAPER_ID, "message": "hi"})
+    (event,) = sse_events(resp)
+    assert event["type"] == "error"
+    assert "sk-secret" not in event["message"]
+
+
+def test_fetch_errors_are_shown_to_users(client, monkeypatch):
+    async def query_paper(paper_id, question, chat_history=None):
+        raise paper_service.PaperFetchError("No source available for 1706.03762")
+
+    monkeypatch.setattr(paper_service, "query_paper", query_paper)
+
+    resp = client.post("/api/chat", json={"paper_id": PAPER_ID, "message": "hi"})
+    assert resp.json()["detail"] == "No source available for 1706.03762"
