@@ -78,7 +78,13 @@
                     {% endfor %}
                     {% if not messages %}
                         <div class="welcome-message">
-                            <p>Ask a question about this paper to start the conversation.</p>
+                            <p>ArxivBot answers questions about this paper and quotes the passages it relies on.</p>
+                            <div class="starters">
+                                <button type="button" class="starter">Summarize this paper</button>
+                                <button type="button" class="starter">What is the main contribution?</button>
+                                <button type="button" class="starter">What are the limitations?</button>
+                                <button type="button" class="starter">Explain the method step by step</button>
+                            </div>
                         </div>
                     {% endif %}
                 </main>
@@ -168,6 +174,14 @@
                 e.preventDefault();
                 sendMessage(e);
             }
+        });
+
+        // Starter questions go through the normal send path; ignored while a request is in flight
+        document.querySelectorAll('.starter').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if (sendBtn.disabled) return;
+                doSendMessage(btn.textContent.trim(), true);
+            });
         });
 
         function setupIframe() {

@@ -539,6 +539,32 @@ nav {
     font-family: var(--font-serif);
 }
 
+.starters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+
+.starter {
+    max-width: 100%;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.starter:hover,
+.starter:focus-visible {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
 .message {
     margin-bottom: 1rem;
     max-width: 80%;
