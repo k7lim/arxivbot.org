@@ -15,14 +15,14 @@ During work:
 
 Finish:
 - Close: `bd close <id> --reason "Summary" --json`.
-- Sync and push: `git pull --rebase && bd sync && git push`.
+- Export, commit, push: `bd export -o .beads/issues.jsonl && git add .beads/issues.jsonl && git commit`, then `git pull --rebase && git push`. (`bd sync` no longer exists in bd 1.0.)
 - Verify: `git status` must show "up to date with origin".
 
 Rules:
 - Always use `--json` for machine output.
 - Always double-quote titles/descriptions.
 - Do not use `bd edit` (human-only); use `bd update` flags instead.
-- If daemon is unsafe (sandbox/CI/worktrees), use `bd --sandbox` or `bd --no-daemon`.
+- If bd misbehaves in a sandbox, CI or worktree, use `bd --sandbox`.
 - Work is NOT complete until `git commit` succeeds. Never say "ready to push when you are".
 
 ## Deployment
@@ -31,7 +31,18 @@ Rules:
 - Do NOT change `DATABASE_PATH` in `fly.toml` without updating the mount destination
 - Volume name: `arxivbot_data`
 
-**Deploy commands:** Use `just deploy` (see Justfile)
+**Every push to `main` deploys to production.** `.github/workflows/fly-deploy.yml` runs `flyctl deploy` on push, with no test step, so run the tests before you push. This includes docs-only and bd-only commits.
+- Confirm the deploy: `gh run watch $(gh run list -L 1 --json databaseId -q '.[0].databaseId') --exit-status`, then `curl -sf https://arxivbot.org/health`.
+- `just deploy` does the same thing by hand and needs an authenticated `fly` CLI. Do not run it as well as pushing.
+- Protected-workspace agents have no `fly` login. Anything that needs `fly status`, `fly logs` or `fly machines list` is an owner step; say so in the close reason instead of guessing.
+
+## Testing and Verification
+
+- Tests: `uv run pytest -q` (about 100 tests, a few seconds, no `.env` or API key needed). This is the only quality gate; no linter is configured.
+- Page and API tests use FastAPI's `TestClient`; follow the patterns in `tests/test_pages.py` (it monkeypatches `paper_service.fetch_paper_metadata`) and `tests/test_chat_persistence.py` (seeding chats).
+- In a protected workspace `localhost` is blocked, so `just dev` and `just check` cannot be reached. Verify with `TestClient` tests before pushing, then with read-only `curl` against https://arxivbot.org after the deploy finishes.
+- Do not POST to the production chat API unless the issue says you may. Each question spends a small daily free-tier LLM quota and leaves a chat row in the prod database.
+- `templates/home.html` and `templates/chat.html` are edited by many issues. Work on one such issue at a time and `git pull --rebase` before starting.
 
 ## Landing the Plane (Session Completion)
 
@@ -44,8 +55,8 @@ Rules:
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
+   bd export -o .beads/issues.jsonl   # then commit it
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
