@@ -1,16 +1,23 @@
 """Rate limiting configuration for API endpoints."""
 
 from slowapi import Limiter
-from slowapi.util import get_ipaddr
+from starlette.requests import Request
 
 
-def get_identifier(request):
-    """Get client IP address from request.
+def get_identifier(request: Request) -> str:
+    """Get the real client IP for rate limiting.
 
-    Uses get_ipaddr which respects X-Forwarded-For header,
-    necessary for deployments behind proxies like Fly.io.
+    Uses Fly-Client-IP, which Fly's edge proxy sets (overwriting any
+    client-supplied value). Falls back to the socket peer address when
+    running outside Fly. X-Forwarded-For is deliberately ignored because
+    clients can spoof it.
     """
-    return get_ipaddr(request)
+    fly_ip = request.headers.get("fly-client-ip", "").strip()
+    if fly_ip:
+        return fly_ip
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
 
 
 # Create limiter instance with IP-based rate limiting
