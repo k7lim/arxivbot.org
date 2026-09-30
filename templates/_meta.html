@@ -1,0 +1,17 @@
+{#- Link-preview metadata. Reads meta_title, meta_description and meta_canonical
+    from the context; pages without a canonical URL (errors) omit it and og:url. -#}
+{%- set _site = site_url() if site_url is defined else "https://arxivbot.org" -%}
+{%- set _title = meta_title|default("ArxivBot - Chat with arXiv Papers", true) -%}
+{%- set _description = meta_description|default('Add "bot" after "arxiv" in any arXiv paper URL to ask questions about the paper and get answers quoted from its text.', true) -%}
+<meta name="description" content="{{ _description }}">
+    {%- if meta_canonical %}
+    <link rel="canonical" href="{{ meta_canonical }}">
+    <meta property="og:url" content="{{ meta_canonical }}">
+    {%- endif %}
+    <meta property="og:title" content="{{ _title }}">
+    <meta property="og:description" content="{{ _description }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="ArxivBot">
+    <meta property="og:image" content="{{ _site }}/static/og.png">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">

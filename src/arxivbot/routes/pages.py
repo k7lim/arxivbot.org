@@ -3,7 +3,13 @@
 from html import escape
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.templating import Jinja2Templates
 
 from arxivbot.config import get_settings
@@ -13,6 +19,27 @@ from arxivbot.utils.arxiv import parse_arxiv_id
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+
+META_DESCRIPTION_MAX = 200
+
+
+def _site_url() -> str:
+    """Public origin without a trailing slash."""
+    return get_settings().site_url.rstrip("/")
+
+
+# Read by templates/_meta.html for absolute URLs (og:image)
+templates.env.globals["site_url"] = _site_url
+
+
+def _abstract_description(abstract: str | None) -> str | None:
+    """Abstract as a one-line meta description, or None if there is no abstract."""
+    text = " ".join((abstract or "").split())
+    if not text:
+        return None
+    if len(text) > META_DESCRIPTION_MAX:
+        text = text[:META_DESCRIPTION_MAX] + "..."
+    return text
 
 
 @router.get("/abs/{paper_id:path}", response_class=HTMLResponse)
@@ -64,6 +91,7 @@ async def new_chat_page(request: Request, paper_id: str):
         title = paper.title
     elif metadata:
         title = metadata.get("title")
+    abstract = (paper.abstract if paper else None) or (metadata or {}).get("abstract")
 
     return templates.TemplateResponse(
         request,
@@ -71,9 +99,14 @@ async def new_chat_page(request: Request, paper_id: str):
         {
             "paper_id": paper_id,
             "paper_title": title,
+            "paper_abstract": abstract,
             "paper_url": parsed.abs_url,
             "chat_slug": None,
             "messages": [],
+            "meta_title": title or f"arXiv {paper_id}",
+            "meta_description": _abstract_description(abstract)
+            or f"Ask questions about arXiv paper {paper_id} and get answers quoted from its text.",
+            "meta_canonical": f"{_site_url()}/abs/{paper_id}",
         },
     )
 
@@ -127,6 +160,7 @@ async def load_chat_page(request: Request, slug: str):
         title = paper.title
     elif metadata:
         title = metadata.get("title")
+    abstract = (paper.abstract if paper else None) or (metadata or {}).get("abstract")
 
     # Get chat messages
     messages = await chat_service.get_messages(chat.id)
@@ -137,9 +171,14 @@ async def load_chat_page(request: Request, slug: str):
         {
             "paper_id": paper_id,
             "paper_title": title,
+            "paper_abstract": abstract,
             "paper_url": parsed.abs_url,
             "chat_slug": slug,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
+            # No question or message text here: chats are shared by link only
+            "meta_title": f"Chat about: {title or f'arXiv {paper_id}'}",
+            "meta_description": "A conversation about this paper on ArxivBot.",
+            "meta_canonical": f"{_site_url()}/chat/{slug}",
         },
     )
 
@@ -150,12 +189,14 @@ async def home_page(request: Request):
     return templates.TemplateResponse(
         request,
         "home.html",
+        {"meta_canonical": f"{_site_url()}/"},
     )
 
 
-def _site_url() -> str:
-    """Public origin without a trailing slash."""
-    return get_settings().site_url.rstrip("/")
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon_ico():
+    """Serve the favicon at the root path browsers request by default."""
+    return FileResponse("static/favicon.ico", media_type="image/x-icon")
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)
