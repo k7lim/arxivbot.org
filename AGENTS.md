@@ -15,7 +15,7 @@ During work:
 
 Finish:
 - Close: `bd close <id> --reason "Summary" --json`.
-- Export, commit, push: `bd export -o .beads/issues.jsonl && git add .beads/issues.jsonl && git commit`, then `git pull --rebase && git push`. (`bd sync` no longer exists in bd 1.0.)
+- Export, commit, push: `bd export -o .beads/issues.jsonl && git add .beads/issues.jsonl .beads/interactions.jsonl && git commit`, then `git pull --rebase && git push`. (`bd sync` no longer exists in bd 1.0.)
 - Verify: `git status` must show "up to date with origin".
 
 Rules:
