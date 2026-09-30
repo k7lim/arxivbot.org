@@ -152,3 +152,34 @@ def test_fetch_metadata_parses_entry(monkeypatch):
         "abstract": "We propose the Transformer.",
         "authors": ["A. Vaswani"],
     }
+
+
+def test_home_github_link_points_at_repo(client):
+    html = client.get("/").text
+    assert 'href="https://github.com"' not in html
+    assert 'href="https://github.com/k7lim/arxivbot.org"' in html
+
+
+def test_home_example_is_clickable_and_bolds_inserted_letters(client):
+    html = client.get("/").text
+    assert '<a class="url new" href="/abs/1706.03762">' in html
+    assert "https://arxiv<strong>bot</strong>.org/abs/1706.03762" in html
+    assert "Add <strong>bot</strong> after <code>arxiv</code> in any arXiv paper URL." in html
+    assert "Works with /abs/, /pdf/ and /html/ links." in html
+    assert "Simply change" not in html
+
+
+def test_home_form_label_and_single_main(client):
+    html = client.get("/").text
+    assert '<label for="paper-input" class="visually-hidden">arXiv ID or URL</label>' in html
+    assert html.count("<main>") == 1
+    assert html.count("</main>") == 1
+
+
+def test_error_page_form_has_label(client):
+    html = client.get("/nope").text
+    assert 'label for="paper-input"' in html
+
+
+def test_visually_hidden_rule_is_served(client):
+    assert ".visually-hidden" in client.get("/static/style.css").text
