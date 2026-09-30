@@ -46,7 +46,11 @@
 
     function onChange(doc, requireScope) {
       var text = readSelection(doc, requireScope);
-      if (text.length >= MIN_CHARS && text.length <= MAX_CHARS) {
+      if (text.length >= MIN_CHARS) {
+        // A long selection (a whole paragraph) is asked about by its opening words
+        if (text.length > MAX_CHARS) {
+          text = text.slice(0, MAX_CHARS).replace(/\s+\S*$/, "") + "...";
+        }
         show(text);
       } else if (!text) {
         // Tapping the bar can clear the selection first; give the tap time to land.
