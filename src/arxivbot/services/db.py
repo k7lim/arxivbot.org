@@ -1,5 +1,6 @@
 """SQLite database for papers, chats, and messages."""
 
+import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -82,6 +83,23 @@ async def init_db(db_path: Path | None = None) -> None:
     async with aiosqlite.connect(path) as db:
         await db.executescript(SCHEMA)
         await db.commit()
+
+
+async def check_db(db_path: Path | None = None, timeout: float = 2.0) -> None:
+    """Verify the database exists and has its schema; raise on failure.
+
+    Opens the file read-write without creating it (mode=rw), so a missing
+    database is reported instead of silently created.
+    """
+    path = (db_path or get_database_path()).resolve()
+    uri = f"{path.as_uri()}?mode=rw"
+
+    async def _probe() -> None:
+        async with aiosqlite.connect(uri, uri=True, timeout=timeout) as db:
+            async with db.execute("SELECT 1 FROM chats LIMIT 1") as cursor:
+                await cursor.fetchone()
+
+    await asyncio.wait_for(_probe(), timeout=timeout)
 
 
 async def get_connection(db_path: Path | None = None) -> aiosqlite.Connection:

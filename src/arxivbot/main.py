@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from arxivbot.limiter import limiter
 from arxivbot.routes import api, pages
-from arxivbot.services.db import init_db
+from arxivbot.services.db import check_db, init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,16 +61,15 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 
 @app.get("/health")
 async def health():
-    """Health check endpoint for Fly.io."""
-    from arxivbot.config import get_settings
-
+    """Health check endpoint for Fly.io: verifies the database is reachable."""
     try:
-        db_path = get_settings().database_path
-        return {"status": "ok", "database": "connected", "path": str(db_path)}
-    except Exception as e:
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
+        await check_db()
+    except Exception:
+        logger.exception("Health check failed: database unavailable")
+        return JSONResponse(
+            {"status": "error", "database": "unavailable"}, status_code=503
+        )
+    return {"status": "ok", "database": "connected"}
 
 
 # Mount static files
