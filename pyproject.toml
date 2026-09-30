@@ -24,6 +24,7 @@ packages = ["src/arxivbot"]
 
 [dependency-groups]
 dev = [
+    "aioresponses>=0.7.9",
     "httpx>=0.28.1",
     "pytest>=9.1.1",
 ]

@@ -206,6 +206,10 @@ async def get_status(paper_id: str, background_tasks: BackgroundTasks):
     if status["status"] == "not_started":
         background_tasks.add_task(paper_service.index_paper, paper_id)
         status = {"status": "starting", "progress": 5}
+    # Retry a failed fetch once the error cooldown has passed
+    elif paper_service.should_retry_after_error(status):
+        status = paper_service.mark_indexing_started(paper_id)
+        background_tasks.add_task(paper_service.index_paper, paper_id)
 
     return StatusResponse(
         status=status.get("status", "unknown"),
@@ -229,5 +233,6 @@ async def start_indexing(paper_id: str, background_tasks: BackgroundTasks):
     if status["status"] not in ("not_started", "error"):
         return {"message": "Indexing in progress"}
 
+    paper_service.mark_indexing_started(paper_id)
     background_tasks.add_task(paper_service.index_paper, paper_id)
     return {"message": "Indexing started"}

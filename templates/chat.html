@@ -64,6 +64,7 @@
 
                 <div id="status-banner" class="status-banner" style="display: none;">
                     <span id="status-text">Indexing paper...</span>
+                    <button type="button" id="status-retry-btn" class="retry-btn" style="display: none;" onclick="retryIndexing()">Retry</button>
                     <div class="progress-bar">
                         <div id="progress-fill" class="progress-fill"></div>
                     </div>
@@ -132,6 +133,7 @@
         const statusBanner = document.getElementById('status-banner');
         const statusText = document.getElementById('status-text');
         const progressFill = document.getElementById('progress-fill');
+        const statusRetryBtn = document.getElementById('status-retry-btn');
 
         // Paper pane elements
         const paperPane = document.getElementById('paper-pane');
@@ -252,14 +254,18 @@
 
                 if (data.status === 'complete') {
                     statusBanner.style.display = 'none';
+                    statusRetryBtn.style.display = 'none';
                     messageInput.disabled = false;
                     sendBtn.disabled = false;
                 } else if (data.status === 'error') {
                     statusBanner.style.display = 'block';
-                    statusText.textContent = `Error: ${data.error}`;
+                    statusText.textContent = data.error || 'Failed to load this paper.';
                     progressFill.style.width = '0%';
+                    statusRetryBtn.style.display = 'inline-block';
+                    statusRetryBtn.disabled = false;
                 } else {
                     statusBanner.style.display = 'block';
+                    statusRetryBtn.style.display = 'none';
                     statusText.textContent = getStatusMessage(data.status);
                     progressFill.style.width = `${data.progress}%`;
                     // Check again in 2 seconds
@@ -268,6 +274,17 @@
             } catch (error) {
                 console.error('Status check failed:', error);
             }
+        }
+
+        async function retryIndexing() {
+            statusRetryBtn.disabled = true;
+            statusText.textContent = getStatusMessage('starting');
+            try {
+                await fetch(`/api/index/${paperId}`, { method: 'POST' });
+            } catch (error) {
+                console.error('Retry indexing failed:', error);
+            }
+            checkStatus();
         }
 
         function getStatusMessage(status) {

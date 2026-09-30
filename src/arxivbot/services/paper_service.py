@@ -1,10 +1,12 @@
 """Paper service for fetching arXiv papers and answering questions via direct context."""
 
+import asyncio
 import gzip
 import io
 import logging
 import re
 import tarfile
+import time
 from datetime import datetime
 
 import aiohttp
@@ -34,6 +36,114 @@ MAX_CACHE_SIZE = 5
 
 # Maximum ar5iv HTML cache size
 MAX_AR5IV_CACHE_SIZE = 3
+
+# --- arXiv HTTP ---------------------------------------------------------------
+
+ARXIV_USER_AGENT = "arxivbot/0.1 (+https://arxivbot.org)"
+
+# Total request timeouts (seconds)
+SOURCE_TIMEOUT = 60
+METADATA_TIMEOUT = 20
+HTML_TIMEOUT = 30
+
+# Backoff delays between retries; len() is the max retry count
+RETRY_BACKOFF = (2, 5, 15)
+MAX_RETRY_AFTER = 60
+RETRYABLE_STATUSES = frozenset({406, 429}) | frozenset(range(500, 600))
+
+# Seconds after an error before /api/status re-triggers indexing
+ERROR_RETRY_COOLDOWN = 60
+
+# User-facing error messages
+TRANSIENT_ERROR_MESSAGE = "arXiv is temporarily unavailable. Please retry in a minute."
+GENERIC_ERROR_MESSAGE = "Failed to fetch this paper from arXiv. Please retry in a minute."
+
+# Cap concurrent arXiv source downloads
+_download_semaphore = asyncio.Semaphore(2)
+
+# Patchable so tests don't actually wait
+_sleep = asyncio.sleep
+
+_TRANSIENT_EXCEPTIONS = (
+    asyncio.TimeoutError,
+    aiohttp.ClientPayloadError,  # "Response payload is not completed"
+    aiohttp.http_exceptions.ContentLengthError,
+    aiohttp.ClientConnectionError,  # includes ServerDisconnectedError
+)
+
+
+class ArxivUnavailableError(Exception):
+    """arXiv kept failing transiently after all retries."""
+
+
+class PaperFetchError(ValueError):
+    """Fetch failure whose message is safe to show to users."""
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Parse a numeric Retry-After header, capped. HTTP-date values are ignored."""
+    if not value:
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, MAX_RETRY_AFTER)
+
+
+async def _arxiv_get(
+    url: str,
+    *,
+    timeout: float,
+    as_text: bool = False,
+    max_retries: int = len(RETRY_BACKOFF),
+    semaphore: asyncio.Semaphore | None = None,
+) -> tuple[int, bytes | str | None]:
+    """GET an arXiv URL with User-Agent, timeout and retries on transient failures.
+
+    Returns (status, body). Body is None for non-200 responses. Non-retryable
+    statuses (e.g. 404) are returned immediately. Raises ArxivUnavailableError
+    once retries are exhausted.
+    """
+    headers = {"User-Agent": ARXIV_USER_AGENT}
+    client_timeout = aiohttp.ClientTimeout(total=timeout)
+    attempt = 0
+    while True:
+        retry_after = None
+        try:
+            if semaphore is not None:
+                await semaphore.acquire()
+            try:
+                async with aiohttp.ClientSession(timeout=client_timeout) as session:
+                    async with session.get(url, headers=headers, allow_redirects=True) as resp:
+                        status = resp.status
+                        if status == 200:
+                            body = await resp.text() if as_text else await resp.read()
+                            return status, body
+                        if status not in RETRYABLE_STATUSES:
+                            return status, None
+                        retry_after = _retry_after_seconds(resp.headers.get("Retry-After"))
+                        reason = f"HTTP {status}"
+            finally:
+                if semaphore is not None:
+                    semaphore.release()
+        except _TRANSIENT_EXCEPTIONS as e:
+            reason = f"{type(e).__name__}: {e}"
+
+        if attempt >= max_retries:
+            logger.error(f"arXiv GET {url} failed after {attempt + 1} attempts: {reason}")
+            raise ArxivUnavailableError(reason)
+
+        delay = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)]
+        if retry_after is not None:
+            delay = max(delay, retry_after)
+        attempt += 1
+        logger.warning(
+            f"arXiv GET {url} transient failure ({reason}); retry {attempt}/{max_retries} in {delay}s"
+        )
+        await _sleep(delay)
 
 
 # Router setup for primary + fallback LLM providers
@@ -130,6 +240,23 @@ async def get_indexing_status(paper_id: str) -> dict:
     return {"status": "not_started", "progress": 0}
 
 
+def should_retry_after_error(status: dict) -> bool:
+    """True if an error status is old enough that indexing may be re-attempted."""
+    if status.get("status") != "error":
+        return False
+    error_at = status.get("error_at")
+    if error_at is None:
+        return True
+    return time.time() - error_at >= ERROR_RETRY_COOLDOWN
+
+
+def mark_indexing_started(paper_id: str) -> dict:
+    """Record that indexing was scheduled, so concurrent polls don't re-trigger it."""
+    status = {"status": "starting", "progress": 5}
+    _indexing_status[paper_id] = status
+    return status
+
+
 async def fetch_paper_content(paper_id: str) -> str:
     """Fetch TeX source for a paper. Returns the concatenated .tex content."""
     parsed = parse_arxiv_id(paper_id)
@@ -146,20 +273,23 @@ async def fetch_paper_content(paper_id: str) -> str:
     try:
         _indexing_status[paper_id] = {"status": "downloading", "progress": 30}
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(parsed.src_url, allow_redirects=True) as resp:
-                if resp.status == 404:
-                    raise ValueError(f"No source available for {paper_id}")
-                if resp.status != 200:
-                    raise ValueError(f"Failed to fetch source: HTTP {resp.status}")
-
-                data = await resp.read()
+        try:
+            status, data = await _arxiv_get(
+                parsed.src_url, timeout=SOURCE_TIMEOUT, semaphore=_download_semaphore
+            )
+        except ArxivUnavailableError as e:
+            raise PaperFetchError(TRANSIENT_ERROR_MESSAGE) from e
+        if status == 404:
+            raise PaperFetchError(f"No source available for {paper_id}")
+        if status != 200:
+            logger.error(f"arXiv source for {paper_id} returned HTTP {status}")
+            raise PaperFetchError(GENERIC_ERROR_MESSAGE)
 
         _indexing_status[paper_id] = {"status": "extracting", "progress": 60}
 
         content = _extract_tex_from_tar(data)
         if not content:
-            raise ValueError(f"No .tex files found in source for {paper_id}")
+            raise PaperFetchError(f"No .tex files found in source for {paper_id}")
 
         # Truncate very large papers to prevent OOM
         if len(content) > MAX_CONTENT_CHARS:
@@ -191,10 +321,18 @@ async def fetch_paper_content(paper_id: str) -> str:
         logger.info(f"Successfully fetched paper {paper_id} ({len(content):,} chars)")
         return content
 
-    except Exception as e:
-        _indexing_status[paper_id] = {"status": "error", "error": str(e)}
-        logger.error(f"Failed to fetch paper {paper_id}: {e}")
+    except PaperFetchError as e:
+        _indexing_status[paper_id] = {"status": "error", "error": str(e), "error_at": time.time()}
+        logger.error(f"Failed to fetch paper {paper_id}: {e!r} (cause: {e.__cause__!r})")
         raise
+    except Exception as e:
+        _indexing_status[paper_id] = {
+            "status": "error",
+            "error": GENERIC_ERROR_MESSAGE,
+            "error_at": time.time(),
+        }
+        logger.exception(f"Failed to fetch paper {paper_id}: {e!r}")
+        raise PaperFetchError(GENERIC_ERROR_MESSAGE) from e
 
 
 async def index_paper(paper_id: str) -> str:
@@ -308,11 +446,11 @@ async def fetch_paper_metadata(paper_id: str) -> dict | None:
         return None
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(parsed.api_url) as response:
-                if response.status != 200:
-                    return None
-                text = await response.text()
+        status, text = await _arxiv_get(
+            parsed.api_url, timeout=METADATA_TIMEOUT, as_text=True, max_retries=1
+        )
+        if status != 200:
+            return None
 
         root = ET.fromstring(text)
 
@@ -360,16 +498,15 @@ async def fetch_ar5iv_html(paper_id: str) -> str | None:
     arxiv_html_url = f"https://arxiv.org/html/{paper_id}"
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(arxiv_html_url, allow_redirects=True) as resp:
-                if resp.status == 404:
-                    logger.warning(f"arXiv HTML not available for {paper_id}")
-                    return None
-                if resp.status != 200:
-                    logger.warning(f"arXiv returned HTTP {resp.status} for {paper_id}")
-                    return None
-
-                html = await resp.text()
+        status, html = await _arxiv_get(
+            arxiv_html_url, timeout=HTML_TIMEOUT, as_text=True, max_retries=1
+        )
+        if status == 404:
+            logger.warning(f"arXiv HTML not available for {paper_id}")
+            return None
+        if status != 200:
+            logger.warning(f"arXiv returned HTTP {status} for {paper_id}")
+            return None
 
         # Rewrite relative URLs to absolute arXiv URLs
         base_url = "https://arxiv.org"
