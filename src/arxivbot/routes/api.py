@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -25,6 +26,10 @@ class ChatRequestBody(BaseModel):
     paper_id: str
     chat_slug: str | None = None
     message: str
+    # How the answer is pitched: everyday words (default) or the field's own terms
+    level: Literal["plain", "technical"] = "plain"
+    # Continue chat_slug as a new copy instead of appending to it (someone else's shared chat)
+    fork: bool = False
 
     @field_validator("message")
     @classmethod
@@ -105,11 +110,16 @@ async def chat(request: Request, body: ChatRequestBody):
             paper_id=paper_id,
             question=body.message,
             chat_history=chat_history,
+            level=body.level,
         )
 
         # Persist the turn (and the chat, if new) only once the answer succeeded
         chat_slug = await chat_service.save_turn(
-            body.message, result["answer"], chat=chat, paper_id=paper_id
+            body.message,
+            result["answer"],
+            chat=chat,
+            paper_id=paper_id,
+            fork_from=chat if body.fork else None,
         )
 
         return ChatResponse(
@@ -166,6 +176,7 @@ async def chat_stream(request: Request, body: ChatRequestBody):
                 paper_id=paper_id,
                 question=body.message,
                 chat_history=chat_history,
+                level=body.level,
             ):
                 full_response.append(chunk)
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
@@ -173,7 +184,11 @@ async def chat_stream(request: Request, body: ChatRequestBody):
             # Persist the turn (and the chat, if new) only after a complete answer
             complete_response = "".join(full_response)
             chat_slug = await chat_service.save_turn(
-                body.message, complete_response, chat=chat, paper_id=paper_id
+                body.message,
+                complete_response,
+                chat=chat,
+                paper_id=paper_id,
+                fork_from=chat if body.fork else None,
             )
 
             # Send chat slug only once it exists in the database

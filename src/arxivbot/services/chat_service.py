@@ -51,13 +51,25 @@ async def save_turn(
     assistant_message: str,
     chat: db.Chat | None = None,
     paper_id: str | None = None,
+    fork_from: db.Chat | None = None,
 ) -> str:
     """
     Persist a completed chat turn (user message + assistant reply) atomically.
 
     If chat is None, a new chat for paper_id is created in the same transaction.
-    Returns the chat slug.
+    With fork_from, the new chat starts as a copy of that chat's messages, so a
+    shared chat's original stays as its author left it. Returns the chat slug.
     """
+    if fork_from is not None:
+        slug = generate_chat_slug(user_message)
+        await db.save_turn(
+            user_message,
+            assistant_message,
+            new_chat_slug=slug,
+            paper_id=paper_id or fork_from.paper_id,
+            copy_from_chat_id=fork_from.id,
+        )
+        return slug
     if chat is not None:
         await db.save_turn(user_message, assistant_message, chat_id=chat.id)
         return chat.slug

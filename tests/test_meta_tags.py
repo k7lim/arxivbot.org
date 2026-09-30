@@ -99,7 +99,7 @@ def test_abs_fallbacks_when_metadata_unavailable(client, metadata):
 
 
 def test_chat_page_metadata_omits_message_text(client, metadata, monkeypatch):
-    async def query_paper(paper_id, question, chat_history=None):
+    async def query_paper(paper_id, question, chat_history=None, level="plain"):
         return {"answer": "zebra-answer-text", "citations": []}
 
     monkeypatch.setattr(paper_service, "query_paper", query_paper)
@@ -124,7 +124,7 @@ def test_chat_page_metadata_omits_message_text(client, metadata, monkeypatch):
 
 
 def test_chat_page_title_falls_back_to_arxiv_id(client, metadata, monkeypatch):
-    async def query_paper(paper_id, question, chat_history=None):
+    async def query_paper(paper_id, question, chat_history=None, level="plain"):
         return {"answer": "ok", "citations": []}
 
     monkeypatch.setattr(paper_service, "query_paper", query_paper)

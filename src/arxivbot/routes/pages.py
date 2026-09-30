@@ -22,6 +22,62 @@ templates = Jinja2Templates(directory="templates")
 
 META_DESCRIPTION_MAX = 200
 
+# Longest ?ask= question a link can pre-fill into the chat box
+ASK_PREFILL_MAX = 500
+
+# Home page example gallery: landmark AI papers, each with a plain-language hook
+# and a first question that opens the paper up for a newcomer.
+GALLERY = [
+    {
+        "id": "1706.03762",
+        "title": "Attention Is All You Need",
+        "hook": "The Transformer: the \"T\" in ChatGPT.",
+        "ask": "What is attention, explained without math?",
+    },
+    {
+        "id": "2005.14165",
+        "title": "Language Models are Few-Shot Learners",
+        "hook": "GPT-3, and why a bigger model could suddenly learn from a few examples.",
+        "ask": "What does \"few-shot\" mean, and why was it a surprise?",
+    },
+    {
+        "id": "2203.02155",
+        "title": "Training language models to follow instructions with human feedback",
+        "hook": "How chatbots learned to be helpful instead of just predicting text.",
+        "ask": "How did human feedback change the model's behavior?",
+    },
+    {
+        "id": "2201.11903",
+        "title": "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+        "hook": "Why asking an AI to \"think step by step\" works.",
+        "ask": "Why does showing worked examples make the model reason better?",
+    },
+    {
+        "id": "2001.08361",
+        "title": "Scaling Laws for Neural Language Models",
+        "hook": "Why AI labs keep building bigger models.",
+        "ask": "What are scaling laws, in everyday terms?",
+    },
+    {
+        "id": "2006.11239",
+        "title": "Denoising Diffusion Probabilistic Models",
+        "hook": "The idea behind AI image generators: turning noise into pictures.",
+        "ask": "How can removing noise create a new image?",
+    },
+    {
+        "id": "2005.11401",
+        "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+        "hook": "RAG: letting an AI look things up before it answers.",
+        "ask": "Why does looking things up reduce made-up answers?",
+    },
+    {
+        "id": "2212.08073",
+        "title": "Constitutional AI: Harmlessness from AI Feedback",
+        "hook": "Teaching an AI to follow a written set of principles.",
+        "ask": "What is the \"constitution\" and how is it used in training?",
+    },
+]
+
 
 def _site_url() -> str:
     """Public origin without a trailing slash."""
@@ -30,6 +86,11 @@ def _site_url() -> str:
 
 # Read by templates/_meta.html for absolute URLs (og:image)
 templates.env.globals["site_url"] = _site_url
+
+
+def _ask_prefill(request: Request) -> str:
+    """The ?ask= question to pre-fill into the chat box, trimmed and bounded."""
+    return (request.query_params.get("ask") or "").strip()[:ASK_PREFILL_MAX]
 
 
 def _abstract_description(abstract: str | None) -> str | None:
@@ -103,6 +164,7 @@ async def new_chat_page(request: Request, paper_id: str):
             "paper_url": parsed.abs_url,
             "chat_slug": None,
             "messages": [],
+            "ask": _ask_prefill(request),
             "meta_title": title or f"arXiv {paper_id}",
             "meta_description": _abstract_description(abstract)
             or f"Ask questions about arXiv paper {paper_id} and get answers quoted from its text.",
@@ -175,6 +237,7 @@ async def load_chat_page(request: Request, slug: str):
             "paper_url": parsed.abs_url,
             "chat_slug": slug,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "ask": _ask_prefill(request),
             # No question or message text here: chats are shared by link only
             "meta_title": f"Chat about: {title or f'arXiv {paper_id}'}",
             "meta_description": "A conversation about this paper on ArxivBot.",
@@ -189,7 +252,7 @@ async def home_page(request: Request):
     return templates.TemplateResponse(
         request,
         "home.html",
-        {"meta_canonical": f"{_site_url()}/"},
+        {"meta_canonical": f"{_site_url()}/", "gallery": GALLERY},
     )
 
 

@@ -35,11 +35,11 @@ def sse_events(resp):
 def ok_llm(monkeypatch):
     calls = []
 
-    async def query_paper(paper_id, question, chat_history=None):
+    async def query_paper(paper_id, question, chat_history=None, level="plain"):
         calls.append(chat_history)
         return {"answer": f"answer to {question}", "citations": []}
 
-    async def query_paper_stream(paper_id, question, chat_history=None):
+    async def query_paper_stream(paper_id, question, chat_history=None, level="plain"):
         calls.append(chat_history)
         yield "answer "
         yield f"to {question}"
@@ -51,10 +51,10 @@ def ok_llm(monkeypatch):
 
 @pytest.fixture
 def failing_llm(monkeypatch):
-    async def query_paper(paper_id, question, chat_history=None):
+    async def query_paper(paper_id, question, chat_history=None, level="plain"):
         raise RuntimeError("No source available")
 
-    async def query_paper_stream(paper_id, question, chat_history=None):
+    async def query_paper_stream(paper_id, question, chat_history=None, level="plain"):
         yield "partial "
         raise RuntimeError("No source available")
 
@@ -143,11 +143,11 @@ def test_failure_on_existing_chat_adds_nothing_and_retry_is_clean(
     # Retry after recovery: history has no dangling user turn, no duplicates
     calls = []
 
-    async def query_paper(paper_id, question, chat_history=None):
+    async def query_paper(paper_id, question, chat_history=None, level="plain"):
         calls.append(chat_history)
         return {"answer": "second answer", "citations": []}
 
-    async def query_paper_stream(paper_id, question, chat_history=None):
+    async def query_paper_stream(paper_id, question, chat_history=None, level="plain"):
         calls.append(chat_history)
         yield "second answer"
 
@@ -171,10 +171,10 @@ def test_failure_on_existing_chat_adds_nothing_and_retry_is_clean(
 
 
 def test_llm_errors_are_not_exposed(client, monkeypatch):
-    async def query_paper(paper_id, question, chat_history=None):
+    async def query_paper(paper_id, question, chat_history=None, level="plain"):
         raise RuntimeError("provider said: api_key=sk-secret")
 
-    async def query_paper_stream(paper_id, question, chat_history=None):
+    async def query_paper_stream(paper_id, question, chat_history=None, level="plain"):
         raise RuntimeError("provider said: api_key=sk-secret")
         yield  # pragma: no cover
 
@@ -192,7 +192,7 @@ def test_llm_errors_are_not_exposed(client, monkeypatch):
 
 
 def test_fetch_errors_are_shown_to_users(client, monkeypatch):
-    async def query_paper(paper_id, question, chat_history=None):
+    async def query_paper(paper_id, question, chat_history=None, level="plain"):
         raise paper_service.PaperFetchError("No source available for 1706.03762")
 
     monkeypatch.setattr(paper_service, "query_paper", query_paper)

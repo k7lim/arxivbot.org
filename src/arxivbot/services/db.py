@@ -236,13 +236,15 @@ async def save_turn(
     chat_id: int | None = None,
     new_chat_slug: str | None = None,
     paper_id: str | None = None,
+    copy_from_chat_id: int | None = None,
     db_path: Path | None = None,
 ) -> int:
     """
     Persist a user message and assistant reply in one transaction.
 
     If chat_id is None, a chat row is created with new_chat_slug/paper_id
-    in the same transaction. Returns the chat id.
+    in the same transaction; with copy_from_chat_id, that chat's messages are
+    copied into the new chat first (a fork). Returns the chat id.
     """
     async with aiosqlite.connect(db_path or get_database_path()) as db:
         try:
@@ -252,6 +254,13 @@ async def save_turn(
                     (new_chat_slug, paper_id),
                 )
                 chat_id = cursor.lastrowid
+                if copy_from_chat_id is not None:
+                    await db.execute(
+                        "INSERT INTO messages (chat_id, role, content, created_at)"
+                        " SELECT ?, role, content, created_at FROM messages"
+                        " WHERE chat_id = ? ORDER BY created_at, id",
+                        (chat_id, copy_from_chat_id),
+                    )
             await db.executemany(
                 "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)",
                 [

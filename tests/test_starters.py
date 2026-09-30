@@ -6,13 +6,15 @@ import re
 from arxivbot.services import chat_service, db, paper_service
 
 ORIENTATION = (
-    "ArxivBot answers questions about this paper and quotes the passages it relies on."
+    "Ask anything about this paper, in your own words. "
+    "Answers quote the paper so you can check them."
 )
+# Lay-reader starters (nf4): plain-language entry points, not reviewer questions
 STARTERS = [
-    "Summarize this paper",
-    "What is the main contribution?",
-    "What are the limitations?",
-    "Explain the method step by step",
+    "Explain this paper like I'm new to AI",
+    "What's the one big idea?",
+    "Why does this matter outside research?",
+    "Which terms should I learn first?",
 ]
 
 

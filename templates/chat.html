@@ -71,7 +71,7 @@
                     </div>
                     <div class="header-right">
                         <button id="share-btn" class="share-btn" style="display: none;" onclick="shareChat()">
-                            Copy Chat Link
+                            Share chat
                         </button>
                     </div>
                 </header>
@@ -84,37 +84,57 @@
                     </div>
                 </div>
 
+                {% if chat_slug %}
+                <div id="shared-banner" class="shared-banner" role="note" hidden>
+                    <p><strong>Someone shared this conversation with you.</strong> Keep asking below: your questions start your own copy, and theirs stays as it was.</p>
+                    <a href="/abs/{{ paper_id }}" class="shared-banner-link">Start fresh on this paper</a>
+                </div>
+                {% endif %}
+
                 <div class="chat-messages" id="messages">
                     {% for msg in messages %}
-                        <div class="message {{ msg.role }}">
+                        <div class="message {{ msg.role }}" id="m-{{ loop.index0 }}">
                             <div class="message-content">{{ msg.content }}</div>
                         </div>
                     {% endfor %}
                     {% if not messages %}
                         <div class="welcome-message">
-                            <p>ArxivBot answers questions about this paper and quotes the passages it relies on.</p>
+                            <p>Ask anything about this paper, in your own words. Answers quote the paper so you can check them.</p>
                             <div class="starters">
-                                <button type="button" class="starter">Summarize this paper</button>
-                                <button type="button" class="starter">What is the main contribution?</button>
-                                <button type="button" class="starter">What are the limitations?</button>
-                                <button type="button" class="starter">Explain the method step by step</button>
+                                <button type="button" class="starter">Explain this paper like I'm new to AI</button>
+                                <button type="button" class="starter">What's the one big idea?</button>
+                                <button type="button" class="starter">Why does this matter outside research?</button>
+                                <button type="button" class="starter">Which terms should I learn first?</button>
                             </div>
                         </div>
                     {% endif %}
                 </div>
 
                 <footer class="chat-input-container">
+                    <div id="explain-bar" class="explain-bar" hidden>
+                        <button type="button" id="explain-btn" class="explain-btn">Explain <span id="explain-label"></span></button>
+                        <button type="button" id="explain-dismiss" class="explain-dismiss" aria-label="Dismiss">&times;</button>
+                    </div>
                     <form id="chat-form" onsubmit="return sendMessage(event)">
+                        <label for="message-input" class="visually-hidden">Your question</label>
                         <textarea
                             id="message-input"
-                            placeholder="Ask a question about this paper..."
+                            placeholder="Ask anything about this paper"
                             autocomplete="off"
                             autofocus
                             rows="1"
                             maxlength="4000"
-                        ></textarea>
+                        >{{ ask }}</textarea>
                         <button type="submit" id="send-btn">Send</button>
                     </form>
+                    <div class="chat-input-meta">
+                        <fieldset class="level-toggle">
+                            <legend class="visually-hidden">Answer style</legend>
+                            <label><input type="radio" name="level" value="plain" checked> Plain English</label>
+                            <label><input type="radio" name="level" value="technical"> Technical</label>
+                        </fieldset>
+                        <p class="caveat">AI answers can be wrong. Tap a quote to check it in the paper.</p>
+                    </div>
                 </footer>
             </div>
         </main>
@@ -144,10 +164,15 @@
     </style>
 
     <script src="/static/markdown.js"></script>
+    <script src="/static/followups.js"></script>
     <script src="/static/quote-highlighter.js"></script>
+    <script src="/static/explain-selection.js"></script>
     <script>
         const paperId = "{{ paper_id }}";
+        const paperTitle = {{ (paper_title or ('arXiv ' ~ paper_id))|tojson }};
         let chatSlug = {{ chat_slug|tojson if chat_slug else 'null' }};
+        // Saved messages so far; a message's index is its #m-<n> share anchor
+        let persistedCount = {{ messages|length }};
         const messagesContainer = document.getElementById('messages');
         const messageInput = document.getElementById('message-input');
         const sendBtn = document.getElementById('send-btn');
@@ -156,6 +181,7 @@
         const statusText = document.getElementById('status-text');
         const progressFill = document.getElementById('progress-fill');
         const statusRetryBtn = document.getElementById('status-retry-btn');
+        let pendingUserEl = null;
 
         // Paper pane elements
         const paperPane = document.getElementById('paper-pane');
@@ -165,10 +191,89 @@
         const togglePaperBtn = document.getElementById('toggle-paper');
         const resizeHandle = document.getElementById('resize-handle');
 
+        // Chats started in this browser. Anyone else's chat is someone's share:
+        // the first question forks it, so the original stays as its author left it.
+        // Transform actions on the latest answer: [label, question sent]
+        const TRANSFORMS = [
+            ['Simpler', 'Explain your last answer more simply, for someone with no technical background.'],
+            ['Analogy', 'Give me an everyday analogy for your last answer.'],
+            ['Go deeper', 'Go deeper on your last answer: what are the technical details?'],
+        ];
+
+        const OWNED_KEY = 'arxivbot.ownedChats';
+        const LEVEL_KEY = 'arxivbot.level';
+
+        function readOwned() {
+            try {
+                const list = JSON.parse(localStorage.getItem(OWNED_KEY) || '[]');
+                return Array.isArray(list) ? list : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function markOwned(slug) {
+            try {
+                const list = readOwned().filter(s => s !== slug);
+                list.push(slug);
+                localStorage.setItem(OWNED_KEY, JSON.stringify(list.slice(-200)));
+            } catch (e) {
+                // Storage unavailable: this page still forks only once
+            }
+        }
+
+        let viewingShare = Boolean(chatSlug) && !readOwned().includes(chatSlug);
+        const sharedBanner = document.getElementById('shared-banner');
+        if (viewingShare && sharedBanner) {
+            sharedBanner.hidden = false;
+        }
+
+        // Plain English or Technical answers, remembered per browser
+        const levelInputs = document.querySelectorAll('input[name="level"]');
+        try {
+            const savedLevel = localStorage.getItem(LEVEL_KEY);
+            levelInputs.forEach(input => { input.checked = input.value === savedLevel || (!savedLevel && input.value === 'plain'); });
+        } catch (e) {
+            // Keep the default
+        }
+        levelInputs.forEach(input => input.addEventListener('change', function() {
+            try { localStorage.setItem(LEVEL_KEY, input.value); } catch (e) {}
+        }));
+
+        function currentLevel() {
+            const checked = document.querySelector('input[name="level"]:checked');
+            return checked ? checked.value : 'plain';
+        }
+
         // Show share button if we have a chat slug
         if (chatSlug) {
             shareBtn.style.display = 'inline-block';
         }
+
+        // Saved answers: pull out "Ask next" questions and add the answer actions.
+        // Runs before quote-highlighter.js renders them (it waits for DOMContentLoaded).
+        document.querySelectorAll('.message.assistant').forEach(el => decorateAnswer(el));
+        markLatest();
+        document.addEventListener('DOMContentLoaded', spotlightFromHash);
+        window.addEventListener('hashchange', spotlightFromHash);
+
+        // Pre-filled question from an ?ask= link: size the box and put the caret at the end
+        if (messageInput.value) {
+            autoResize();
+            messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+        }
+
+        window.initExplainSelection({
+            bar: document.getElementById('explain-bar'),
+            label: document.getElementById('explain-label'),
+            button: document.getElementById('explain-btn'),
+            dismiss: document.getElementById('explain-dismiss'),
+            scope: messagesContainer,
+            iframe: ar5ivIframe,
+            ask: function(text) {
+                askQuestion(`Explain this part in plain words: "${text}"`);
+            },
+        });
 
         // Check indexing status on load
         startIndexing();
@@ -194,10 +299,101 @@
         // Starter questions go through the normal send path; ignored while a request is in flight
         document.querySelectorAll('.starter').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                if (sendBtn.disabled) return;
-                doSendMessage(btn.textContent.trim(), true);
+                askQuestion(btn.textContent.trim());
             });
         });
+
+        function askQuestion(text) {
+            if (sendBtn.disabled) return;
+            doSendMessage(text, true);
+        }
+
+        // Answer extras: follow-up question buttons, transform actions and a
+        // share link to this one answer. Only the latest answer shows the
+        // follow-ups and transforms (see .latest in style.css).
+        function decorateAnswer(messageEl) {
+            const contentEl = messageEl.querySelector('.message-content');
+            if (!contentEl || contentEl.classList.contains('error-content') || messageEl.dataset.decorated) return;
+            messageEl.dataset.decorated = 'true';
+
+            const parts = window.splitFollowUps(contentEl.textContent);
+            contentEl.textContent = parts.body;
+
+            const actions = document.createElement('div');
+            actions.className = 'answer-actions';
+            const share = document.createElement('button');
+            share.type = 'button';
+            share.className = 'answer-action share-answer';
+            share.textContent = 'Share this answer';
+            share.addEventListener('click', () => shareAnswer(messageEl, share));
+            actions.appendChild(share);
+            for (const [label, prompt] of TRANSFORMS) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'answer-action transform';
+                btn.textContent = label;
+                btn.addEventListener('click', () => askQuestion(prompt));
+                actions.appendChild(btn);
+            }
+            messageEl.appendChild(actions);
+
+            if (parts.questions.length) {
+                const box = document.createElement('div');
+                box.className = 'followups';
+                const heading = document.createElement('span');
+                heading.className = 'followups-label';
+                heading.textContent = 'Ask next';
+                box.appendChild(heading);
+                for (const q of parts.questions) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'starter followup';
+                    btn.textContent = q;
+                    btn.addEventListener('click', () => askQuestion(q));
+                    box.appendChild(btn);
+                }
+                messageEl.appendChild(box);
+            }
+        }
+
+        function markLatest() {
+            const answers = messagesContainer.querySelectorAll('.message.assistant[data-decorated]');
+            answers.forEach((el, i) => el.classList.toggle('latest', i === answers.length - 1));
+        }
+
+        // Link straight to one answer: /chat/<slug>#m-<n> scrolls to it and marks it
+        function spotlightFromHash() {
+            const match = /^#m-(\d+)$/.exec(window.location.hash);
+            if (!match) return;
+            const target = document.getElementById(`m-${match[1]}`);
+            if (!target) return;
+            document.querySelectorAll('.message.spotlight').forEach(el => el.classList.remove('spotlight'));
+            target.classList.add('spotlight');
+            target.scrollIntoView({ block: 'center' });
+        }
+
+        async function shareLink(url, button, idleLabel) {
+            if (navigator.share && window.matchMedia('(pointer: coarse)').matches) {
+                try {
+                    await navigator.share({ title: paperTitle, text: `An answer about "${paperTitle}" on ArxivBot`, url });
+                    return;
+                } catch (error) {
+                    if (error && error.name === 'AbortError') return;
+                }
+            }
+            try {
+                await navigator.clipboard.writeText(url);
+                button.textContent = 'Link copied!';
+                setTimeout(() => { button.textContent = idleLabel; }, 2000);
+            } catch (error) {
+                prompt('Copy this link:', url);
+            }
+        }
+
+        function shareAnswer(messageEl, button) {
+            if (!chatSlug || !messageEl.id) return;
+            shareLink(`${window.location.origin}/chat/${chatSlug}#${messageEl.id}`, button, 'Share this answer');
+        }
 
         function setupIframe() {
             let iframeLoaded = false;
@@ -395,7 +591,7 @@
 
         async function doSendMessage(message, addUserBubble) {
             if (addUserBubble) {
-                addMessage('user', message);
+                pendingUserEl = addMessage('user', message);
                 messageInput.value = '';
                 messageInput.style.height = 'auto';
             }
@@ -424,6 +620,8 @@
                         paper_id: paperId,
                         chat_slug: chatSlug,
                         message: message,
+                        level: currentLevel(),
+                        fork: viewingShare,
                     }),
                 });
 
@@ -466,6 +664,7 @@
                 const decoder = new TextDecoder();
                 let buffer = '';
                 let hasError = false;
+                let streamed = '';
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -480,14 +679,25 @@
                             const data = JSON.parse(line.slice(6));
 
                             if (data.type === 'meta') {
-                                // Sent only after the turn is saved; update slug and URL if new chat
-                                if (!chatSlug && data.chat_slug) {
+                                // Sent only after the turn is saved; update slug and URL if new or forked
+                                if (data.chat_slug && data.chat_slug !== chatSlug) {
                                     chatSlug = data.chat_slug;
+                                    markOwned(chatSlug);
                                     history.pushState({}, '', `/chat/${chatSlug}`);
                                     shareBtn.style.display = 'inline-block';
+                                    if (viewingShare && sharedBanner) {
+                                        sharedBanner.querySelector('p').textContent = 'This is now your own copy of the conversation. Share it to pass it on.';
+                                    }
+                                    viewingShare = false;
                                 }
+                                if (pendingUserEl) pendingUserEl.id = `m-${persistedCount}`;
+                                assistantDiv.id = `m-${persistedCount + 1}`;
+                                persistedCount += 2;
+                                pendingUserEl = null;
                             } else if (data.type === 'chunk') {
-                                contentDiv.textContent += data.content;
+                                streamed += data.content;
+                                // Hide the "Ask next" block while it streams; it becomes buttons at the end
+                                contentDiv.textContent = window.splitFollowUps(streamed).body;
                                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
                             } else if (data.type === 'error') {
                                 hasError = true;
@@ -499,9 +709,12 @@
                     }
                 }
 
-                // Process quotes after streaming completes (only if no error)
-                if (!hasError && window.processQuotes) {
-                    window.processQuotes(assistantDiv);
+                // Decorate and render after streaming completes (only if no error)
+                if (!hasError) {
+                    contentDiv.textContent = streamed;
+                    decorateAnswer(assistantDiv);
+                    if (window.processQuotes) window.processQuotes(assistantDiv);
+                    markLatest();
                 }
 
             } catch (error) {
@@ -536,6 +749,7 @@
             div.innerHTML = html;
             messagesContainer.appendChild(div);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return div;
         }
 
         function escapeHtml(text) {
@@ -546,19 +760,7 @@
 
         async function shareChat() {
             if (!chatSlug) return;
-
-            const url = `${window.location.origin}/chat/${chatSlug}`;
-
-            try {
-                await navigator.clipboard.writeText(url);
-                shareBtn.textContent = 'Copied!';
-                setTimeout(() => {
-                    shareBtn.textContent = 'Copy Chat Link';
-                }, 2000);
-            } catch (error) {
-                // Fallback for older browsers
-                prompt('Copy this link:', url);
-            }
+            shareLink(`${window.location.origin}/chat/${chatSlug}`, shareBtn, 'Share chat');
         }
     </script>
 </body>

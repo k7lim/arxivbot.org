@@ -547,12 +547,28 @@ async def index_paper(paper_id: str) -> str:
     return await fetch_paper_content(paper_id)
 
 
+LEVEL_INSTRUCTIONS = {
+    "plain": """Audience: a curious reader with no research background.
+- Open with a one or two sentence answer in everyday words, then add detail
+- Explain every technical term the first time you use it, in plain words
+- Use a concrete analogy or example when an idea is abstract
+- Avoid equations unless asked; describe what they mean instead""",
+    "technical": """Audience: a reader comfortable with the field's terminology.
+- Be precise and use the paper's own terms, notation and equations where useful
+- Point to specific sections, experiments and numbers""",
+}
+
+FOLLOW_UP_HEADING = "**Ask next:**"
+
+
 def _build_messages(
     content: str,
     question: str,
     chat_history: list[dict] | None = None,
+    level: str = "plain",
 ) -> list[dict]:
     """Build the LLM message list for querying a paper."""
+    audience = LEVEL_INSTRUCTIONS.get(level, LEVEL_INSTRUCTIONS["plain"])
     messages = [
         {
             "role": "system",
@@ -562,6 +578,8 @@ def _build_messages(
 {content}
 </paper>
 
+{audience}
+
 Instructions:
 - Answer questions accurately based on the paper content
 - When referencing specific text from the paper, quote it using this exact format on its own line:
@@ -570,11 +588,17 @@ Instructions:
 - Quote the exact wording from the paper, not a paraphrase
 - If something isn't in the paper, say so
 - Be concise but thorough
+- End every answer with the line {FOLLOW_UP_HEADING} followed by exactly three short follow-up questions the reader might ask next, each on its own "- " bullet line. Nothing may come after them.
 
 Example response format:
 The authors propose a novel approach to optimization. As stated in the paper:
 > "our method achieves 95% accuracy on the benchmark"
-This represents a significant improvement over prior work.""",
+This represents a significant improvement over prior work.
+
+{FOLLOW_UP_HEADING}
+- How does the benchmark measure accuracy?
+- What did earlier methods score?
+- Where does the method still fail?""",
         }
     ]
 
@@ -590,6 +614,7 @@ async def query_paper(
     paper_id: str,
     question: str,
     chat_history: list[dict] | None = None,
+    level: str = "plain",
 ) -> dict:
     """
     Query a paper using direct context.
@@ -599,7 +624,7 @@ async def query_paper(
     """
     content = await fetch_paper_content(paper_id)
     settings = get_settings()
-    messages = _build_messages(content, question, chat_history)
+    messages = _build_messages(content, question, chat_history, level)
 
     # Call LLM via Router (falls back across models on errors and rate limits)
     router = _get_router()
@@ -619,6 +644,7 @@ async def query_paper_stream(
     paper_id: str,
     question: str,
     chat_history: list[dict] | None = None,
+    level: str = "plain",
 ):
     """
     Query a paper using direct context with streaming response.
@@ -628,7 +654,7 @@ async def query_paper_stream(
     """
     content = await fetch_paper_content(paper_id)
     settings = get_settings()
-    messages = _build_messages(content, question, chat_history)
+    messages = _build_messages(content, question, chat_history, level)
 
     # Call LLM via Router with streaming (falls back across models on errors and rate limits)
     router = _get_router()

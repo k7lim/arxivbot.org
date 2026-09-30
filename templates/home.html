@@ -21,12 +21,33 @@
     <main>
     <div class="home-container">
         <div class="hero">
-            <h1>ArxivBot</h1>
-            <p class="tagline">Chat with any arXiv paper using AI</p>
+            <h1>Understand any AI paper in plain English</h1>
+            <p class="tagline">Paste an arXiv link and ask anything. Answers quote the paper so you can check them, and any answer can be shared with a friend.</p>
+            <div class="hero-cta">
+                {% include "_paper_form.html" %}
+            </div>
         </div>
 
+        <section class="gallery" aria-labelledby="gallery-heading">
+            <div class="gallery-header">
+                <h2 id="gallery-heading">Or start with a landmark paper</h2>
+                <button type="button" class="surprise-btn" id="surprise-btn">Surprise me</button>
+            </div>
+            <ul class="gallery-grid">
+                {% for paper in gallery %}
+                <li class="gallery-item">
+                    <a class="gallery-card" href="/abs/{{ paper.id }}?ask={{ paper.ask|urlencode }}">
+                        <span class="gallery-hook">{{ paper.hook }}</span>
+                        <span class="gallery-title">{{ paper.title }}</span>
+                        <span class="gallery-ask">Ask: {{ paper.ask }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
+
         <div class="how-to">
-            <h2>How to Use</h2>
+            <h2>Shortcut from arXiv</h2>
             <p>Add <strong>bot</strong> after <code>arxiv</code> in any arXiv paper URL.</p>
             <p>Works with /abs/, /pdf/ and /html/ links.</p>
 
@@ -39,28 +60,32 @@
             </div>
         </div>
 
-        <div class="try-it">
-            <h2>Try It</h2>
-            {% include "_paper_form.html" %}
-        </div>
-
         <div class="features">
             <div class="feature">
-                <h3>Ask Questions</h3>
-                <p>Query the paper in natural language and get answers with citations</p>
+                <h3>No jargon required</h3>
+                <p>Answers start in everyday words and explain each technical term. Switch to Technical when you want the details.</p>
             </div>
             <div class="feature">
-                <h3>Share Chats</h3>
-                <p>Every conversation gets a shareable permalink</p>
+                <h3>Check it yourself</h3>
+                <p>Tap any quote in an answer to see that passage highlighted in the paper.</p>
             </div>
             <div class="feature">
-                <h3>Multi-turn</h3>
-                <p>Continue the conversation with follow-up questions</p>
+                <h3>Share the a-ha</h3>
+                <p>Send a friend a link to one answer. They land on it and can keep asking in their own copy.</p>
             </div>
         </div>
     </div>
     </main>
 
     <script src="/static/paper-form.js"></script>
+    <script>
+        // Randomize: open one of the gallery papers at random
+        document.getElementById('surprise-btn').addEventListener('click', function() {
+            const cards = document.querySelectorAll('.gallery-card');
+            if (cards.length) {
+                window.location.href = cards[Math.floor(Math.random() * cards.length)].href;
+            }
+        });
+    </script>
 </body>
 </html>

@@ -261,6 +261,102 @@ nav {
     font-family: var(--font-serif);
 }
 
+/* Home: hero call to action and example gallery */
+.hero .tagline {
+    max-width: 620px;
+    margin: 0 auto;
+}
+
+.hero-cta {
+    margin-top: 1.75rem;
+}
+
+.hero-cta #paper-input {
+    padding: 0.9rem 1rem;
+    font-size: 1.05rem;
+}
+
+.gallery {
+    margin-bottom: 2.5rem;
+}
+
+.gallery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.gallery-header h2 {
+    font-size: 1.1rem;
+    color: var(--text-main);
+}
+
+.surprise-btn {
+    min-height: 40px;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--secondary);
+    border-radius: 999px;
+    background: var(--bg-main);
+    color: var(--secondary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.surprise-btn:hover,
+.surprise-btn:focus-visible {
+    background: var(--secondary);
+    color: white;
+}
+
+.gallery-grid {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1rem;
+}
+
+.gallery-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    height: 100%;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-main);
+    color: var(--text-main);
+    text-decoration: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.gallery-card:hover,
+.gallery-card:focus-visible {
+    border-color: var(--primary);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+    text-decoration: none;
+}
+
+.gallery-hook {
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.gallery-title {
+    font-family: var(--font-serif);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.gallery-ask {
+    margin-top: auto;
+    font-size: 0.85rem;
+    color: var(--primary);
+}
+
 /* Split-pane layout */
 .split-container {
     display: flex;
@@ -858,6 +954,201 @@ nav {
 #send-btn:disabled {
     background: var(--border);
     cursor: not-allowed;
+}
+
+/* Shared-with-you banner (a nudge to keep asking in your own copy) */
+.shared-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 1.5rem;
+    background: #eef4fb;
+    border-bottom: 1px solid #c9dcf0;
+    font-size: 0.9rem;
+}
+
+.shared-banner[hidden] {
+    display: none;
+}
+
+.shared-banner-link {
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+/* Disclosure: every answer is labeled as AI-written */
+.message.assistant:not(.loading) > .message-content::before {
+    content: "ArxivBot \00B7  AI answer";
+    display: block;
+    margin-bottom: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: normal;
+}
+
+.message.assistant > .message-content.error-content::before {
+    content: none;
+}
+
+/* Answer actions: share one answer, transform the latest one */
+.answer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+}
+
+.answer-action {
+    min-height: 32px;
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-main);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.answer-action:hover,
+.answer-action:focus-visible {
+    border-color: var(--secondary);
+    color: var(--secondary);
+}
+
+.answer-action.share-answer {
+    color: var(--secondary);
+    font-weight: 600;
+}
+
+.message.assistant:not(.latest) .answer-action.transform,
+.message.assistant:not(.latest) .followups {
+    display: none;
+}
+
+/* Follow-up questions under the latest answer */
+.followups {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+}
+
+.followups-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-muted);
+}
+
+.starter.followup {
+    text-align: left;
+}
+
+/* An answer opened from a share link */
+.message.spotlight > .message-content {
+    box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.6);
+}
+
+/* Inline action: explain the selected phrase */
+.explain-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+}
+
+.explain-bar[hidden] {
+    display: none;
+}
+
+.explain-btn {
+    flex: 1;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--secondary);
+    border-radius: 999px;
+    background: #eef4fb;
+    color: var(--secondary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.explain-btn span {
+    font-weight: 400;
+    font-family: var(--font-serif);
+}
+
+.explain-dismiss {
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--bg-main);
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+
+/* Below the chat box: answer style (mode) and the caveat */
+.chat-input-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.level-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+}
+
+.level-toggle label {
+    position: relative;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.level-toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+}
+
+.level-toggle label:has(input:checked) {
+    background: var(--secondary);
+    color: white;
+}
+
+.level-toggle label:has(input:focus-visible) {
+    outline: 2px solid var(--secondary);
+    outline-offset: -2px;
+}
+
+.caveat {
+    font-size: 0.75rem;
+    color: var(--text-muted);
 }
 
 /* Responsive */
