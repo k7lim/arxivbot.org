@@ -198,7 +198,7 @@ async def llms_txt():
     )
 
 
-AR5IV_ERROR_MARKER ='<meta name="arxivbot-error" content="{kind}">'
+AR5IV_ERROR_MARKER = '<meta name="arxivbot-error" content="{kind}">'
 
 
 def _ar5iv_error_page(status_code: int, kind: str, message: str, paper_id: str) -> HTMLResponse:
