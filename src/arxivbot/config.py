@@ -38,6 +38,9 @@ class Settings(BaseSettings):
         models = [m.strip() for m in self.llm_free_fallback_models.split(",")]
         return [m for m in models if m and m != self.llm_model]
 
+    # Public origin used in absolute URLs (robots.txt, sitemap.xml); no trailing slash
+    site_url: str = "https://arxivbot.org"
+
     # Database
     database_path: Path = Path("./data/arxivbot.db")
 

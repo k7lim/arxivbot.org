@@ -3,9 +3,10 @@
 from html import escape
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from arxivbot.config import get_settings
 from arxivbot.services import chat_service, paper_service
 from arxivbot.services.db import Paper, get_paper, upsert_paper
 from arxivbot.utils.arxiv import parse_arxiv_id
@@ -152,7 +153,52 @@ async def home_page(request: Request):
     )
 
 
-AR5IV_ERROR_MARKER = '<meta name="arxivbot-error" content="{kind}">'
+def _site_url() -> str:
+    """Public origin without a trailing slash."""
+    return get_settings().site_url.rstrip("/")
+
+
+@router.get("/robots.txt", response_class=PlainTextResponse)
+async def robots_txt():
+    """Crawler rules: keep bots out of the API and the proxied ar5iv content."""
+    return (
+        "User-agent: *\n"
+        "Disallow: /api/\n"
+        "Disallow: /ar5iv/\n"
+        f"Sitemap: {_site_url()}/sitemap.xml\n"
+    )
+
+
+@router.get("/sitemap.xml")
+async def sitemap_xml():
+    """Sitemap listing only the home page (chats are link-shared, not published)."""
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"  <url><loc>{escape(_site_url())}/</loc></url>\n"
+        "</urlset>\n"
+    )
+    return Response(content=body, media_type="application/xml")
+
+
+@router.get("/llms.txt", response_class=PlainTextResponse)
+async def llms_txt():
+    """Markdown summary of the site for LLM crawlers."""
+    return (
+        "# ArxivBot\n"
+        "\n"
+        'Chat with any arXiv paper. Add "bot" after "arxiv" in a paper URL.\n'
+        "\n"
+        "## Supported URL forms\n"
+        "\n"
+        "- `/abs/<id>`: chat with the paper that has this arXiv ID\n"
+        "- `/pdf/<id>`: redirects to `/abs/<id>`\n"
+        "- `/html/<id>`: redirects to `/abs/<id>`\n"
+        "- `/chat/<slug>`: a saved chat, shared by link\n"
+    )
+
+
+AR5IV_ERROR_MARKER ='<meta name="arxivbot-error" content="{kind}">'
 
 
 def _ar5iv_error_page(status_code: int, kind: str, message: str, paper_id: str) -> HTMLResponse:
