@@ -42,9 +42,9 @@ async def new_chat_page(request: Request, paper_id: str):
         title = metadata.get("title")
 
     return templates.TemplateResponse(
+        request,
         "chat.html",
         {
-            "request": request,
             "paper_id": paper_id,
             "paper_title": title,
             "paper_url": parsed.abs_url,
@@ -105,9 +105,9 @@ async def load_chat_page(request: Request, slug: str):
     messages = await chat_service.get_messages(chat.id)
 
     return templates.TemplateResponse(
+        request,
         "chat.html",
         {
-            "request": request,
             "paper_id": paper_id,
             "paper_title": title,
             "paper_url": parsed.abs_url,
@@ -121,10 +121,8 @@ async def load_chat_page(request: Request, slug: str):
 async def home_page(request: Request):
     """Render the home page."""
     return templates.TemplateResponse(
+        request,
         "home.html",
-        {
-            "request": request,
-        },
     )
 
 
