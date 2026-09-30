@@ -10,10 +10,10 @@
 <body>
     <div class="split-container">
         <!-- Left pane: ar5iv paper viewer -->
-        <div class="paper-pane" id="paper-pane">
+        <aside class="paper-pane" id="paper-pane" aria-label="Paper">
             <div class="paper-pane-header">
                 <span class="paper-pane-title">Paper</span>
-                <button class="paper-pane-toggle" id="toggle-paper" title="Toggle paper viewer">
+                <button class="paper-pane-toggle" id="toggle-paper" title="Toggle paper viewer" aria-label="Toggle paper viewer" aria-expanded="true">
                     <span class="toggle-icon"></span>
                 </button>
             </div>
@@ -26,6 +26,7 @@
                     id="ar5iv-iframe"
                     src="/ar5iv/{{ paper_id }}"
                     class="ar5iv-frame"
+                    title="Paper: {{ paper_title or paper_id }}"
                     style="display: none;"
                 ></iframe>
                 <div class="paper-error" id="paper-error" style="display: none;">
@@ -35,26 +36,28 @@
                     </a>
                 </div>
             </div>
-        </div>
+        </aside>
 
         <!-- Resize handle -->
         <div class="resize-handle" id="resize-handle"></div>
 
         <!-- Right pane: chat interface -->
-        <div class="chat-pane">
+        <main class="chat-pane">
             <div class="chat-container">
                 <header class="chat-header">
                     <div class="header-left">
                         <a href="/" class="logo">ArxivBot</a>
                     </div>
                     <div class="header-center">
-                        <a href="{{ paper_url }}" target="_blank" class="paper-link">
-                            {% if paper_title %}
-                                {{ paper_title[:80] }}{% if paper_title|length > 80 %}...{% endif %}
-                            {% else %}
-                                {{ paper_id }}
-                            {% endif %}
-                        </a>
+                        <h1 class="paper-heading">
+                            <a href="{{ paper_url }}" target="_blank" class="paper-link">
+                                {% if paper_title %}
+                                    {{ paper_title[:80] }}{% if paper_title|length > 80 %}...{% endif %}
+                                {% else %}
+                                    {{ paper_id }}
+                                {% endif %}
+                            </a>
+                        </h1>
                     </div>
                     <div class="header-right">
                         <button id="share-btn" class="share-btn" style="display: none;" onclick="shareChat()">
@@ -71,7 +74,7 @@
                     </div>
                 </div>
 
-                <main class="chat-messages" id="messages">
+                <div class="chat-messages" id="messages">
                     {% for msg in messages %}
                         <div class="message {{ msg.role }}">
                             <div class="message-content">{{ msg.content }}</div>
@@ -88,7 +91,7 @@
                             </div>
                         </div>
                     {% endif %}
-                </main>
+                </div>
 
                 <footer class="chat-input-container">
                     <form id="chat-form" onsubmit="return sendMessage(event)">
@@ -104,7 +107,7 @@
                     </form>
                 </footer>
             </div>
-        </div>
+        </main>
     </div>
 
     <!-- Toast container for notifications -->
@@ -259,7 +262,8 @@
 
         function setupToggle() {
             togglePaperBtn.addEventListener('click', function() {
-                paperPane.classList.toggle('collapsed');
+                const collapsed = paperPane.classList.toggle('collapsed');
+                togglePaperBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
                 resizeHandle.classList.toggle('hidden');
             });
         }

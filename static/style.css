@@ -476,6 +476,13 @@ nav {
     padding: 0 1rem;
 }
 
+.paper-heading {
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    margin: 0;
+}
+
 .paper-link {
     font-size: 0.9rem;
     color: var(--text-muted);
