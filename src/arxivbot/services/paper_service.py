@@ -1,5 +1,7 @@
 """Paper service for fetching arXiv papers and answering questions via direct context."""
 
+from __future__ import annotations
+
 import asyncio
 import gzip
 import io
@@ -9,15 +11,16 @@ import tarfile
 import time
 import zlib
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import aiohttp
-import litellm
-import pypdf
-from litellm import Router
 
 from arxivbot.config import get_settings
 from arxivbot.services import db
 from arxivbot.utils.arxiv import parse_arxiv_id
+
+if TYPE_CHECKING:
+    from litellm import Router
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +207,9 @@ def _create_router() -> Router:
     Each free-tier model has its own quota, so falling back across models on
     the same key keeps chat working after one model's daily limit is used up.
     """
+    # Imported lazily: litellm is slow to import and only needed to answer a chat.
+    from litellm import Router
+
     settings = get_settings()
     model_list = [
         {
@@ -386,6 +392,8 @@ def _extract_text_from_pdf(data: bytes) -> str:
     parts: list[str] = []
     total = 0
     try:
+        import pypdf  # lazy: only needed for the PDF-text fallback
+
         reader = pypdf.PdfReader(io.BytesIO(data))
         for i, page in enumerate(reader.pages):
             if i >= MAX_PDF_PAGES:
