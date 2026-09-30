@@ -11,6 +11,7 @@ from datetime import datetime
 
 import aiohttp
 import litellm
+import pypdf
 from litellm import Router
 
 from arxivbot.config import get_settings
@@ -30,6 +31,9 @@ _ar5iv_cache: dict[str, str] = {}
 
 # Maximum content size to prevent OOM (500KB should be plenty for most papers)
 MAX_CONTENT_CHARS = 500_000
+
+# Maximum PDF pages to extract text from (PDF-only submissions)
+MAX_PDF_PAGES = 300
 
 # Maximum number of papers to cache (LRU-style, oldest evicted first)
 MAX_CACHE_SIZE = 5
@@ -223,6 +227,57 @@ def _extract_tex_from_tar(data: bytes) -> str:
     return "\n\n".join(tex_contents)
 
 
+PDF_MAGIC = b"%PDF-"
+GZIP_MAGIC = b"\x1f\x8b"
+
+NO_TEX_SOURCE_MESSAGE = "arXiv has no TeX source for this paper."
+SCANNED_PDF_MESSAGE = "This paper is only available as a scanned PDF, which arxivbot can't read yet."
+UNREADABLE_PDF_MESSAGE = "This paper is only available as a PDF, and arxivbot couldn't read it."
+
+
+def _as_pdf_bytes(data: bytes) -> bytes | None:
+    """Return PDF bytes if data is a PDF (raw or gzipped), else None."""
+    if data[:5] == PDF_MAGIC:
+        return data
+    if data[:2] == GZIP_MAGIC:
+        try:
+            # Peek first so tar.gz sources aren't fully decompressed here
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as gz:
+                if gz.read(5) != PDF_MAGIC:
+                    return None
+            return gzip.decompress(data)
+        except (OSError, EOFError):
+            return None
+    return None
+
+
+def _extract_text_from_pdf(data: bytes) -> str:
+    """Extract text from a PDF, stopping past MAX_CONTENT_CHARS or MAX_PDF_PAGES.
+
+    Raises PaperFetchError if the PDF is unreadable or has no extractable text.
+    """
+    parts: list[str] = []
+    total = 0
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(data))
+        for i, page in enumerate(reader.pages):
+            if i >= MAX_PDF_PAGES:
+                break
+            text = page.extract_text() or ""
+            if text.strip():
+                parts.append(text)
+                total += len(text)
+            if total > MAX_CONTENT_CHARS:
+                break
+    except Exception as e:
+        logger.warning(f"PDF text extraction failed: {e!r}")
+        raise PaperFetchError(UNREADABLE_PDF_MESSAGE) from e
+
+    if not parts:
+        raise PaperFetchError(SCANNED_PDF_MESSAGE)
+    return "\n\n".join(parts)
+
+
 async def get_indexing_status(paper_id: str) -> dict:
     """Get the current indexing status for a paper."""
     if paper_id in _indexing_status:
@@ -258,7 +313,7 @@ def mark_indexing_started(paper_id: str) -> dict:
 
 
 async def fetch_paper_content(paper_id: str) -> str:
-    """Fetch TeX source for a paper. Returns the concatenated .tex content."""
+    """Fetch a paper's source. Returns concatenated .tex content, or PDF text if PDF-only."""
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         raise ValueError(f"Invalid arXiv ID: {paper_id}")
@@ -288,9 +343,15 @@ async def fetch_paper_content(paper_id: str) -> str:
 
         _indexing_status[paper_id] = {"status": "extracting", "progress": 60}
 
-        content = _extract_tex_from_tar(data)
-        if not content:
-            raise PaperFetchError(f"No .tex files found in source for {paper_id}")
+        pdf_data = _as_pdf_bytes(data)
+        if pdf_data is not None:
+            logger.info(f"Paper {paper_id} source is PDF-only; extracting text")
+            data = None  # drop the original buffer before extraction
+            content = await asyncio.to_thread(_extract_text_from_pdf, pdf_data)
+        else:
+            content = _extract_tex_from_tar(data)
+            if not content:
+                raise PaperFetchError(NO_TEX_SOURCE_MESSAGE)
 
         # Truncate very large papers to prevent OOM
         if len(content) > MAX_CONTENT_CHARS:
@@ -350,7 +411,7 @@ def _build_messages(
     messages = [
         {
             "role": "system",
-            "content": f"""You are a helpful research assistant. Answer questions about the following scientific paper based on its LaTeX source.
+            "content": f"""You are a helpful research assistant. Answer questions about the following scientific paper based on its source (LaTeX, or text extracted from its PDF).
 
 <paper>
 {content}

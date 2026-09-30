@@ -25,10 +25,6 @@ Rules:
 - If daemon is unsafe (sandbox/CI/worktrees), use `bd --sandbox` or `bd --no-daemon`.
 - Work is NOT complete until `git commit` succeeds. Never say "ready to push when you are".
 
-## Current Issues
-- #1: Handle papers without TeX source available (PDF fallback)
-- #2: Support bundling multiple arXiv papers (will reintroduce RAG)
-
 ## Deployment
 
 **Production database:** `/data/arxivbot.db` (Fly.io persistent volume)

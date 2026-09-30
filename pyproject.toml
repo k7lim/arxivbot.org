@@ -13,6 +13,7 @@ dependencies = [
     "aiosqlite>=0.19",
     "aiohttp>=3.9",
     "slowapi>=0.1.9",
+    "pypdf>=6.19.0",
 ]
 
 [build-system]
