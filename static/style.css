@@ -197,6 +197,7 @@ nav {
 
 #paper-input {
     flex: 1;
+    min-width: 0;
     padding: 0.75rem 1rem;
     font-size: 1rem;
     border: 1px solid var(--border);
@@ -791,11 +792,23 @@ nav {
         flex: 0 0 40px;
         min-height: 40px;
         max-height: 40px;
+        width: 100% !important;
+    }
+
+    /* Stacked layout: the collapsed pane is a full-width bar, not a side strip */
+    .paper-pane.collapsed .paper-pane-header {
+        flex-direction: row;
+        padding: 0.25rem 1rem;
     }
 
     .paper-pane.collapsed .paper-pane-title {
         writing-mode: horizontal-tb;
         padding: 0;
+        order: 0;
+    }
+
+    .paper-pane.collapsed .paper-pane-toggle {
+        order: 1;
     }
 
     .resize-handle {
