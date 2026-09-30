@@ -7,6 +7,7 @@ import logging
 import re
 import tarfile
 import time
+import zlib
 from datetime import datetime
 
 import aiohttp
@@ -31,6 +32,15 @@ _ar5iv_cache: dict[str, str] = {}
 
 # Maximum content size to prevent OOM (500KB should be plenty for most papers)
 MAX_CONTENT_CHARS = 500_000
+
+# Maximum downloaded source size (compressed bytes)
+MAX_SOURCE_BYTES = 50 * 1024 * 1024
+
+# Maximum total decompressed bytes read from a gzipped source (tar or single file)
+MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024
+
+# Download read chunk size
+_READ_CHUNK_BYTES = 64 * 1024
 
 # Maximum PDF pages to extract text from (PDF-only submissions)
 MAX_PDF_PAGES = 300
@@ -61,6 +71,7 @@ ERROR_RETRY_COOLDOWN = 60
 # User-facing error messages
 TRANSIENT_ERROR_MESSAGE = "arXiv is temporarily unavailable. Please retry in a minute."
 GENERIC_ERROR_MESSAGE = "Failed to fetch this paper from arXiv. Please retry in a minute."
+SOURCE_TOO_LARGE_MESSAGE = "This paper's source is too large for arxivbot to process."
 
 # Cap concurrent arXiv source downloads
 _download_semaphore = asyncio.Semaphore(2)
@@ -84,6 +95,10 @@ class PaperFetchError(ValueError):
     """Fetch failure whose message is safe to show to users."""
 
 
+class SourceTooLargeError(Exception):
+    """A download or decompressed source exceeded its size cap. Never retried."""
+
+
 def _retry_after_seconds(value: str | None) -> float | None:
     """Parse a numeric Retry-After header, capped. HTTP-date values are ignored."""
     if not value:
@@ -104,12 +119,14 @@ async def _arxiv_get(
     as_text: bool = False,
     max_retries: int = len(RETRY_BACKOFF),
     semaphore: asyncio.Semaphore | None = None,
+    max_bytes: int | None = None,
 ) -> tuple[int, bytes | str | None]:
     """GET an arXiv URL with User-Agent, timeout and retries on transient failures.
 
     Returns (status, body). Body is None for non-200 responses. Non-retryable
     statuses (e.g. 404) are returned immediately. Raises ArxivUnavailableError
-    once retries are exhausted.
+    once retries are exhausted. If max_bytes is set, raises SourceTooLargeError
+    (without retrying) once the body is known to exceed it.
     """
     headers = {"User-Agent": ARXIV_USER_AGENT}
     client_timeout = aiohttp.ClientTimeout(total=timeout)
@@ -124,7 +141,12 @@ async def _arxiv_get(
                     async with session.get(url, headers=headers, allow_redirects=True) as resp:
                         status = resp.status
                         if status == 200:
-                            body = await resp.text() if as_text else await resp.read()
+                            if max_bytes is None:
+                                body = await resp.text() if as_text else await resp.read()
+                            else:
+                                body = await _read_capped(resp, max_bytes)
+                                if as_text:
+                                    body = body.decode(resp.charset or "utf-8", errors="replace")
                             return status, body
                         if status not in RETRYABLE_STATUSES:
                             return status, None
@@ -148,6 +170,18 @@ async def _arxiv_get(
             f"arXiv GET {url} transient failure ({reason}); retry {attempt}/{max_retries} in {delay}s"
         )
         await _sleep(delay)
+
+
+async def _read_capped(resp: aiohttp.ClientResponse, max_bytes: int) -> bytes:
+    """Read a response body, raising SourceTooLargeError once it exceeds max_bytes."""
+    if resp.content_length is not None and resp.content_length > max_bytes:
+        raise SourceTooLargeError(f"Content-Length {resp.content_length} > {max_bytes}")
+    buf = bytearray()
+    async for chunk in resp.content.iter_chunked(_READ_CHUNK_BYTES):
+        buf += chunk
+        if len(buf) > max_bytes:
+            raise SourceTooLargeError(f"body exceeded {max_bytes} bytes")
+    return bytes(buf)
 
 
 # Router setup for primary + fallback LLM providers
@@ -197,34 +231,87 @@ def _get_router() -> Router:
     return _router
 
 
-def _extract_tex_from_tar(data: bytes) -> str:
-    """Extract and concatenate all .tex files from a tar.gz archive."""
-    tex_contents = []
+class _BoundedReader(io.RawIOBase):
+    """Read-only stream wrapper that raises SourceTooLargeError past `limit` bytes."""
 
+    def __init__(self, raw, limit: int):
+        self._raw = raw
+        self._limit = limit
+        self._count = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            size = self._limit - self._count + 1
+        chunk = self._raw.read(size)
+        self._count += len(chunk)
+        if self._count > self._limit:
+            raise SourceTooLargeError(f"decompressed source exceeded {self._limit} bytes")
+        return chunk
+
+    def readinto(self, b) -> int:
+        chunk = self.read(len(b))
+        b[: len(chunk)] = chunk
+        return len(chunk)
+
+
+def _gunzip_stream(data: bytes, limit: int | None = None) -> _BoundedReader:
+    """Stream-decompress gzip data, capped at limit (default MAX_DECOMPRESSED_BYTES)."""
+    return _BoundedReader(
+        gzip.GzipFile(fileobj=io.BytesIO(data)), limit or MAX_DECOMPRESSED_BYTES
+    )
+
+
+def _char_budget_bytes(chars_left: int) -> int:
+    """Bytes to read so decoding yields more than chars_left chars (UTF-8 is <= 4 bytes/char)."""
+    return (max(chars_left, 0) + 1) * 4
+
+
+def _extract_tex_from_tar(data: bytes) -> str:
+    """Extract and concatenate .tex files from a tar.gz archive (or single .tex / .tex.gz).
+
+    Memory-bounded: decompression is streamed and capped at MAX_DECOMPRESSED_BYTES
+    (raising SourceTooLargeError), and reading stops once the collected text exceeds
+    MAX_CONTENT_CHARS (the caller truncates to that anyway).
+    """
+    if data[:2] != GZIP_MAGIC:
+        # Maybe it's a plain .tex file
+        if b"\\documentclass" in data or b"\\begin{document}" in data:
+            return data[: _char_budget_bytes(MAX_CONTENT_CHARS)].decode("utf-8", errors="replace")
+        return ""
+
+    tex_contents: list[str] = []
+    total = 0
     try:
-        # Try as tar.gz first
-        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-            for member in tar.getmembers():
+        # Try as tar.gz first; stream mode reads sequentially without seeking
+        with tarfile.open(fileobj=_gunzip_stream(data), mode="r|") as tar:
+            for member in tar:
                 if member.name.endswith(".tex") and member.isfile():
                     f = tar.extractfile(member)
                     if f:
-                        content = f.read().decode("utf-8", errors="replace")
-                        tex_contents.append(f"% === {member.name} ===\n{content}")
-    except tarfile.ReadError:
-        try:
-            # Maybe it's just gzipped (single file)
-            content = gzip.decompress(data).decode("utf-8", errors="replace")
-            tex_contents.append(content)
-        except Exception:
-            # Maybe it's a plain .tex file
-            try:
-                content = data.decode("utf-8", errors="replace")
-                if "\\documentclass" in content or "\\begin{document}" in content:
-                    tex_contents.append(content)
-            except Exception:
-                pass
+                        raw = f.read(_char_budget_bytes(MAX_CONTENT_CHARS - total))
+                        content = raw.decode("utf-8", errors="replace")
+                        entry = f"% === {member.name} ===\n{content}"
+                        tex_contents.append(entry)
+                        total += len(entry) + 2
+                        if total > MAX_CONTENT_CHARS:
+                            break
+        return "\n\n".join(tex_contents)
+    except (tarfile.ReadError, OSError, EOFError, zlib.error):
+        pass
 
-    return "\n\n".join(tex_contents)
+    try:
+        # Maybe it's just gzipped (single file): keep a prefix, but drain the
+        # rest through the bounded reader so gzip bombs are rejected
+        stream = _gunzip_stream(data)
+        raw = stream.read(_char_budget_bytes(MAX_CONTENT_CHARS))
+        while stream.read(_READ_CHUNK_BYTES):
+            pass
+        return raw.decode("utf-8", errors="replace")
+    except (OSError, EOFError, zlib.error):
+        return ""
 
 
 PDF_MAGIC = b"%PDF-"
@@ -236,7 +323,11 @@ UNREADABLE_PDF_MESSAGE = "This paper is only available as a PDF, and arxivbot co
 
 
 def _as_pdf_bytes(data: bytes) -> bytes | None:
-    """Return PDF bytes if data is a PDF (raw or gzipped), else None."""
+    """Return PDF bytes if data is a PDF (raw or gzipped), else None.
+
+    Raises SourceTooLargeError if a gzipped PDF exceeds MAX_SOURCE_BYTES once
+    decompressed (the whole PDF is held in memory for pypdf).
+    """
     if data[:5] == PDF_MAGIC:
         return data
     if data[:2] == GZIP_MAGIC:
@@ -245,8 +336,12 @@ def _as_pdf_bytes(data: bytes) -> bytes | None:
             with gzip.GzipFile(fileobj=io.BytesIO(data)) as gz:
                 if gz.read(5) != PDF_MAGIC:
                     return None
-            return gzip.decompress(data)
-        except (OSError, EOFError):
+            stream = _gunzip_stream(data, MAX_SOURCE_BYTES)
+            parts = []
+            while chunk := stream.read(_READ_CHUNK_BYTES):
+                parts.append(chunk)
+            return b"".join(parts)
+        except (OSError, EOFError, zlib.error):
             return None
     return None
 
@@ -331,10 +426,15 @@ async def fetch_paper_content(paper_id: str) -> str:
 
         try:
             status, data = await _arxiv_get(
-                parsed.src_url, timeout=SOURCE_TIMEOUT, semaphore=_download_semaphore
+                parsed.src_url,
+                timeout=SOURCE_TIMEOUT,
+                semaphore=_download_semaphore,
+                max_bytes=MAX_SOURCE_BYTES,
             )
         except ArxivUnavailableError as e:
             raise PaperFetchError(TRANSIENT_ERROR_MESSAGE) from e
+        except SourceTooLargeError as e:
+            raise PaperFetchError(SOURCE_TOO_LARGE_MESSAGE) from e
         if status == 404:
             raise PaperFetchError(f"No source available for {paper_id}")
         if status != 200:
@@ -343,15 +443,20 @@ async def fetch_paper_content(paper_id: str) -> str:
 
         _indexing_status[paper_id] = {"status": "extracting", "progress": 60}
 
-        pdf_data = _as_pdf_bytes(data)
-        if pdf_data is not None:
-            logger.info(f"Paper {paper_id} source is PDF-only; extracting text")
-            data = None  # drop the original buffer before extraction
-            content = await asyncio.to_thread(_extract_text_from_pdf, pdf_data)
-        else:
-            content = _extract_tex_from_tar(data)
-            if not content:
-                raise PaperFetchError(NO_TEX_SOURCE_MESSAGE)
+        # Decompression/extraction is CPU-bound; keep it off the event loop
+        try:
+            pdf_data = await asyncio.to_thread(_as_pdf_bytes, data)
+            if pdf_data is not None:
+                logger.info(f"Paper {paper_id} source is PDF-only; extracting text")
+                data = None  # drop the original buffer before extraction
+                content = await asyncio.to_thread(_extract_text_from_pdf, pdf_data)
+            else:
+                content = await asyncio.to_thread(_extract_tex_from_tar, data)
+                data = None
+                if not content:
+                    raise PaperFetchError(NO_TEX_SOURCE_MESSAGE)
+        except SourceTooLargeError as e:
+            raise PaperFetchError(SOURCE_TOO_LARGE_MESSAGE) from e
 
         # Truncate very large papers to prevent OOM
         if len(content) > MAX_CONTENT_CHARS:
