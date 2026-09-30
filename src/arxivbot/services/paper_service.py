@@ -262,6 +262,7 @@ async def fetch_paper_content(paper_id: str) -> str:
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         raise ValueError(f"Invalid arXiv ID: {paper_id}")
+    paper_id = parsed.paper_id
 
     # Return cached content if available
     if paper_id in _content_cache:
@@ -488,6 +489,7 @@ async def fetch_ar5iv_html(paper_id: str) -> str | None:
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         return None
+    paper_id = parsed.paper_id
 
     # Return cached HTML if available
     if paper_id in _ar5iv_cache:

@@ -22,6 +22,11 @@ async def new_chat_page(request: Request, paper_id: str):
     if not parsed:
         raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {paper_id}")
 
+    # Send non-canonical spellings (math.AG/0211159, 1706.03762V1) to the canonical URL
+    if parsed.paper_id != paper_id:
+        return RedirectResponse(url=f"/abs/{parsed.paper_id}", status_code=301)
+    paper_id = parsed.paper_id
+
     # Try to get paper metadata
     paper = await get_paper(paper_id)
     metadata = None
@@ -55,12 +60,18 @@ async def pdf_redirect(paper_id: str):
     # Remove .pdf extension if present
     if paper_id.endswith(".pdf"):
         paper_id = paper_id[:-4]
+    parsed = parse_arxiv_id(paper_id)
+    if parsed:
+        paper_id = parsed.paper_id
     return RedirectResponse(url=f"/abs/{paper_id}", status_code=302)
 
 
 @router.get("/html/{paper_id:path}")
 async def html_redirect(paper_id: str):
     """Redirect /html/ URLs to /abs/ for the chat interface."""
+    parsed = parse_arxiv_id(paper_id)
+    if parsed:
+        paper_id = parsed.paper_id
     return RedirectResponse(url=f"/abs/{paper_id}", status_code=302)
 
 
@@ -76,6 +87,7 @@ async def load_chat_page(request: Request, slug: str):
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         raise HTTPException(status_code=500, detail="Invalid paper ID in chat")
+    paper_id = parsed.paper_id
 
     paper = await get_paper(paper_id)
     metadata = None
@@ -153,6 +165,7 @@ async def ar5iv_proxy(paper_id: str):
         return _ar5iv_error_page(
             400, "invalid-id", f"Invalid arXiv ID: {paper_id}", paper_id
         )
+    paper_id = parsed.paper_id
 
     # Fetch (or get cached) ar5iv HTML
     html = await paper_service.fetch_ar5iv_html(paper_id)

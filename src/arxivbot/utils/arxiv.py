@@ -35,10 +35,12 @@ class ArxivPaper:
 
 
 # Modern arXiv ID pattern: YYMM.NNNNN or YYMM.NNNNNvN
-MODERN_PATTERN = re.compile(r"^(\d{4}\.\d{4,5})(v(\d+))?$")
+MODERN_PATTERN = re.compile(r"^(\d{4}\.\d{4,5})([vV](\d+))?$")
 
-# Legacy arXiv ID pattern: category/YYMMNNN or category/YYMMNNNvN
-LEGACY_PATTERN = re.compile(r"^([a-z-]+)/(\d{7})(v(\d+))?$", re.IGNORECASE)
+# Legacy arXiv ID pattern: archive[.SUBJ]/YYMMNNN[vN], e.g. math.AG/0211159v2.
+# The subject class is optional and dropped on normalization (arXiv redirects
+# /abs/math.AG/0211159 to /abs/math/0211159).
+LEGACY_PATTERN = re.compile(r"^([a-z-]+)(\.[a-z-]+)?/(\d{7})(v(\d+))?$", re.IGNORECASE)
 
 
 def parse_arxiv_id(paper_id: str) -> ArxivPaper | None:
@@ -47,9 +49,10 @@ def parse_arxiv_id(paper_id: str) -> ArxivPaper | None:
 
     Supports:
     - Modern IDs: 2601.15621, 2601.15621v1
-    - Legacy IDs: math/9901001, hep-th/9901001v2
+    - Legacy IDs: math/9901001, hep-th/9901001v2, math.AG/0211159
 
-    Returns None if the ID is not valid.
+    The returned ``paper_id`` is canonical: lowercase archive, no subject
+    class, lowercase ``v`` version suffix. Returns None if the ID is not valid.
     """
     paper_id = paper_id.strip()
 
@@ -59,7 +62,7 @@ def parse_arxiv_id(paper_id: str) -> ArxivPaper | None:
         base_id = match.group(1)
         version = int(match.group(3)) if match.group(3) else None
         return ArxivPaper(
-            paper_id=paper_id,
+            paper_id=base_id if version is None else f"{base_id}v{match.group(3)}",
             base_id=base_id,
             version=version,
             category=None,
@@ -69,11 +72,11 @@ def parse_arxiv_id(paper_id: str) -> ArxivPaper | None:
     match = LEGACY_PATTERN.match(paper_id)
     if match:
         category = match.group(1).lower()
-        number = match.group(2)
-        version = int(match.group(4)) if match.group(4) else None
+        number = match.group(3)
+        version = int(match.group(5)) if match.group(5) else None
         base_id = f"{category}/{number}"
         return ArxivPaper(
-            paper_id=paper_id,
+            paper_id=base_id if version is None else f"{base_id}v{match.group(5)}",
             base_id=base_id,
             version=version,
             category=category,
@@ -91,7 +94,7 @@ def extract_arxiv_id_from_path(path: str) -> str | None:
     - /pdf/2601.15621v1 -> 2601.15621v1
     - /abs/math/9901001 -> math/9901001
 
-    Returns the paper ID string or None if not found.
+    Returns the canonical paper ID string or None if not found.
     """
     # Remove leading slash and common prefixes
     path = path.lstrip("/")

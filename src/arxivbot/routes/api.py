@@ -74,6 +74,7 @@ async def chat(request: Request, body: ChatRequestBody):
     parsed = parse_arxiv_id(body.paper_id)
     if not parsed:
         raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {body.paper_id}")
+    paper_id = parsed.paper_id
 
     # Get or create chat
     chat = None
@@ -81,7 +82,8 @@ async def chat(request: Request, body: ChatRequestBody):
         chat = await chat_service.get_chat_by_slug(body.chat_slug)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
-        if chat.paper_id != body.paper_id:
+        stored = parse_arxiv_id(chat.paper_id)
+        if not stored or stored.paper_id != paper_id:
             raise HTTPException(status_code=400, detail="Paper ID mismatch")
 
     # Get chat history for context
@@ -93,14 +95,14 @@ async def chat(request: Request, body: ChatRequestBody):
     try:
         # Query the paper
         result = await paper_service.query_paper(
-            paper_id=body.paper_id,
+            paper_id=paper_id,
             question=body.message,
             chat_history=chat_history,
         )
 
         # Persist the turn (and the chat, if new) only once the answer succeeded
         chat_slug = await chat_service.save_turn(
-            body.message, result["answer"], chat=chat, paper_id=body.paper_id
+            body.message, result["answer"], chat=chat, paper_id=paper_id
         )
 
         return ChatResponse(
@@ -131,6 +133,7 @@ async def chat_stream(request: Request, body: ChatRequestBody):
     parsed = parse_arxiv_id(body.paper_id)
     if not parsed:
         raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {body.paper_id}")
+    paper_id = parsed.paper_id
 
     # Get or create chat
     chat = None
@@ -138,7 +141,8 @@ async def chat_stream(request: Request, body: ChatRequestBody):
         chat = await chat_service.get_chat_by_slug(body.chat_slug)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
-        if chat.paper_id != body.paper_id:
+        stored = parse_arxiv_id(chat.paper_id)
+        if not stored or stored.paper_id != paper_id:
             raise HTTPException(status_code=400, detail="Paper ID mismatch")
 
     # Get chat history for context
@@ -152,7 +156,7 @@ async def chat_stream(request: Request, body: ChatRequestBody):
         try:
             # Stream the response
             async for chunk in paper_service.query_paper_stream(
-                paper_id=body.paper_id,
+                paper_id=paper_id,
                 question=body.message,
                 chat_history=chat_history,
             ):
@@ -162,7 +166,7 @@ async def chat_stream(request: Request, body: ChatRequestBody):
             # Persist the turn (and the chat, if new) only after a complete answer
             complete_response = "".join(full_response)
             chat_slug = await chat_service.save_turn(
-                body.message, complete_response, chat=chat, paper_id=body.paper_id
+                body.message, complete_response, chat=chat, paper_id=paper_id
             )
 
             # Send chat slug only once it exists in the database
@@ -196,6 +200,7 @@ async def get_status(paper_id: str, background_tasks: BackgroundTasks):
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {paper_id}")
+    paper_id = parsed.paper_id
 
     status = await paper_service.get_indexing_status(paper_id)
 
@@ -221,6 +226,7 @@ async def start_indexing(paper_id: str, background_tasks: BackgroundTasks):
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
         raise HTTPException(status_code=400, detail=f"Invalid arXiv ID: {paper_id}")
+    paper_id = parsed.paper_id
 
     status = await paper_service.get_indexing_status(paper_id)
 
