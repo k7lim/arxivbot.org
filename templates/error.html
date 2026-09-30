@@ -17,11 +17,20 @@
         <div class="hero">
             <h1>{{ heading }}</h1>
             <p class="tagline">{{ message }}</p>
+            {% if show_url_example %}
+            <div class="url-transform">
+                <span class="url old">https://<strong>arxiv</strong>.org/abs/1706.03762</span>
+                <span class="arrow">→</span>
+                <span class="url new">https://<strong>arxivbot</strong>.org/abs/1706.03762</span>
+            </div>
+            {% endif %}
+            {% if show_search_link is not defined or show_search_link %}
             <p><a href="https://arxiv.org/search/">Search arXiv</a> to find the paper you want.</p>
+            {% endif %}
         </div>
 
         <div class="try-it">
-            <h2>Try another paper</h2>
+            <h2>{% if show_url_example %}Try a paper{% else %}Try another paper{% endif %}</h2>
             {% include "_paper_form.html" %}
         </div>
     </div>

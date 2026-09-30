@@ -3,10 +3,14 @@
 import logging
 from contextlib import asynccontextmanager
 
+from http import HTTPStatus
+
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from arxivbot.limiter import limiter
 from arxivbot.routes import api, pages
@@ -75,6 +79,62 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
         headers={
             "Retry-After": str(exc.retry_after if hasattr(exc, "retry_after") else 60)
         },
+    )
+
+
+# Paths whose errors are not styled pages: the API stays JSON for its clients,
+# /ar5iv/ has its own marker error page for the iframe, /static/ serves assets.
+PLAIN_ERROR_PREFIXES = ("/api/", "/ar5iv/", "/static/")
+
+NOT_FOUND_MESSAGE = (
+    'ArxivBot works on paper pages. Add "bot" after "arxiv" in a paper URL, '
+    "or paste an ID below."
+)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def html_error_page_handler(request: Request, exc: StarletteHTTPException):
+    """Render a styled error page with the paper form for non-API paths.
+
+    Decided by path, not by Accept header. Status codes are unchanged.
+    """
+    path = request.url.path
+    if path.startswith(PLAIN_ERROR_PREFIXES):
+        return await http_exception_handler(request, exc)
+
+    context = {
+        "status_code": exc.status_code,
+        "show_search_link": False,
+        "show_url_example": False,
+    }
+    if exc.status_code == 404:
+        context.update(
+            heading="Page not found",
+            message=NOT_FOUND_MESSAGE,
+            show_url_example=True,
+        )
+    elif exc.status_code == 400 and path.startswith("/abs/"):
+        context.update(
+            heading="That does not look like an arXiv ID",
+            message="Paste an arXiv ID like 1706.03762, or a paper URL, below.",
+            show_search_link=True,
+        )
+    else:
+        try:
+            heading = HTTPStatus(exc.status_code).phrase
+        except ValueError:
+            heading = "Something went wrong"
+        context.update(
+            heading=heading,
+            message="That did not work. You can start again with a paper ID below.",
+        )
+
+    return pages.templates.TemplateResponse(
+        request,
+        "error.html",
+        context,
+        status_code=exc.status_code,
+        headers=getattr(exc, "headers", None),
     )
 
 
