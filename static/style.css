@@ -831,6 +831,21 @@ nav {
         flex-direction: column;
     }
 
+    /* A 35-character monospace URL is wider than a phone-width .how-to
+       box, so let it shrink and wrap instead of scrolling the page. */
+    .how-to {
+        padding: 1rem;
+    }
+
+    .url {
+        max-width: 100%;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: 0.8rem;
+        padding: 0.5rem 0.75rem;
+        text-align: center;
+    }
+
     .arrow {
         transform: rotate(90deg);
     }
