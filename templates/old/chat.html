@@ -1,0 +1,574 @@
+{#- Snapshot of the UI before the shapeof.ai pass (fcf7394), served under /old
+    for before/after demos. Only paths changed; see routes/pages.py old_* routes. -#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if paper_title %}{{ paper_title }} - {% endif %}ArxivBot</title>
+    {% include "_meta.html" %}
+    <meta name="robots" content="noindex">
+    <link rel="stylesheet" href="/static/old/style.css">
+</head>
+<body>
+    <div class="split-container">
+        <!-- Left pane: ar5iv paper viewer -->
+        <aside class="paper-pane" id="paper-pane" aria-label="Paper">
+            <div class="paper-pane-header">
+                <span class="paper-pane-title">Paper</span>
+                <button class="paper-pane-toggle" id="toggle-paper" title="Toggle paper viewer" aria-label="Toggle paper viewer" aria-expanded="true">
+                    <span class="toggle-icon"></span>
+                </button>
+            </div>
+            <div class="paper-pane-content" id="paper-content">
+                <div class="paper-loading" id="paper-loading">
+                    <span class="loading-spinner"></span>
+                    Loading paper...
+                </div>
+                <iframe
+                    id="ar5iv-iframe"
+                    src="/ar5iv/{{ paper_id }}"
+                    class="ar5iv-frame"
+                    title="Paper: {{ paper_title or paper_id }}"
+                    style="display: none;"
+                ></iframe>
+                <div class="paper-error" id="paper-error" style="display: none;">
+                    <p>HTML view unavailable for this paper.</p>
+                    <a href="https://arxiv.org/pdf/{{ paper_id }}" target="_blank" class="pdf-link">
+                        View PDF on arXiv
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Resize handle -->
+        <div class="resize-handle" id="resize-handle"></div>
+        <script>
+            // Narrow screens start with the paper collapsed so the conversation gets
+            // the room. Runs before first paint, so the expanded pane never shows.
+            // Must match the 768px breakpoint in style.css.
+            if (window.matchMedia('(max-width: 768px)').matches) {
+                document.getElementById('paper-pane').classList.add('collapsed');
+                document.getElementById('resize-handle').classList.add('hidden');
+                document.getElementById('toggle-paper').setAttribute('aria-expanded', 'false');
+            }
+        </script>
+
+        <!-- Right pane: chat interface -->
+        <main class="chat-pane">
+            <div class="chat-container">
+                <header class="chat-header">
+                    <div class="header-left">
+                        <a href="/old" class="logo">ArxivBot</a>
+                    </div>
+                    <div class="header-center">
+                        <h1 class="paper-heading">
+                            <a href="{{ paper_url }}" target="_blank" class="paper-link">
+                                {% if paper_title %}
+                                    {{ paper_title[:80] }}{% if paper_title|length > 80 %}...{% endif %}
+                                {% else %}
+                                    {{ paper_id }}
+                                {% endif %}
+                            </a>
+                        </h1>
+                    </div>
+                    <div class="header-right">
+                        <button id="share-btn" class="share-btn" style="display: none;" onclick="shareChat()">
+                            Copy Chat Link
+                        </button>
+                    </div>
+                </header>
+
+                <div id="status-banner" class="status-banner" style="display: none;">
+                    <span id="status-text">Indexing paper...</span>
+                    <button type="button" id="status-retry-btn" class="retry-btn" style="display: none;" onclick="retryIndexing()">Retry</button>
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                </div>
+
+                <div class="chat-messages" id="messages">
+                    {% for msg in messages %}
+                        <div class="message {{ msg.role }}">
+                            <div class="message-content">{{ msg.content }}</div>
+                        </div>
+                    {% endfor %}
+                    {% if not messages %}
+                        <div class="welcome-message">
+                            <p>ArxivBot answers questions about this paper and quotes the passages it relies on.</p>
+                            <div class="starters">
+                                <button type="button" class="starter">Summarize this paper</button>
+                                <button type="button" class="starter">What is the main contribution?</button>
+                                <button type="button" class="starter">What are the limitations?</button>
+                                <button type="button" class="starter">Explain the method step by step</button>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <footer class="chat-input-container">
+                    <form id="chat-form" onsubmit="return sendMessage(event)">
+                        <textarea
+                            id="message-input"
+                            placeholder="Ask a question about this paper..."
+                            autocomplete="off"
+                            autofocus
+                            rows="1"
+                            maxlength="4000"
+                        ></textarea>
+                        <button type="submit" id="send-btn">Send</button>
+                    </form>
+                </footer>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast container for notifications -->
+    <style>
+        .quote-toast {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: #333;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            z-index: 1000;
+            pointer-events: none;
+        }
+        .quote-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    </style>
+
+    <script src="/static/old/markdown.js"></script>
+    <script src="/static/old/quote-highlighter.js"></script>
+    <script>
+        const paperId = "{{ paper_id }}";
+        let chatSlug = {{ chat_slug|tojson if chat_slug else 'null' }};
+        const messagesContainer = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const shareBtn = document.getElementById('share-btn');
+        const statusBanner = document.getElementById('status-banner');
+        const statusText = document.getElementById('status-text');
+        const progressFill = document.getElementById('progress-fill');
+        const statusRetryBtn = document.getElementById('status-retry-btn');
+
+        // Paper pane elements
+        const paperPane = document.getElementById('paper-pane');
+        const paperLoading = document.getElementById('paper-loading');
+        const paperError = document.getElementById('paper-error');
+        const ar5ivIframe = document.getElementById('ar5iv-iframe');
+        const togglePaperBtn = document.getElementById('toggle-paper');
+        const resizeHandle = document.getElementById('resize-handle');
+
+        // Show share button if we have a chat slug
+        if (chatSlug) {
+            shareBtn.style.display = 'inline-block';
+        }
+
+        // Check indexing status on load
+        startIndexing();
+
+        // Setup iframe load handlers
+        setupIframe();
+
+        // Setup resize handle
+        setupResize();
+
+        // Setup paper pane toggle
+        setupToggle();
+
+        // Auto-resize textarea and handle Enter key
+        messageInput.addEventListener('input', autoResize);
+        messageInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage(e);
+            }
+        });
+
+        // Starter questions go through the normal send path; ignored while a request is in flight
+        document.querySelectorAll('.starter').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if (sendBtn.disabled) return;
+                doSendMessage(btn.textContent.trim(), true);
+            });
+        });
+
+        function setupIframe() {
+            let iframeLoaded = false;
+
+            // The /ar5iv proxy is same-origin, so inspect the loaded document.
+            // Error pages carry <meta name="arxivbot-error">; an unreadable or
+            // empty document also counts as a failure.
+            ar5ivIframe.addEventListener('load', function() {
+                iframeLoaded = true;
+                if (iframeHasPaper()) {
+                    paperLoading.style.display = 'none';
+                    paperError.style.display = 'none';
+                    ar5ivIframe.style.display = 'block';
+                } else {
+                    showPaperError();
+                }
+            });
+
+            ar5ivIframe.addEventListener('error', function() {
+                if (!iframeLoaded) {
+                    showPaperError();
+                }
+            });
+        }
+
+        function iframeHasPaper() {
+            try {
+                const doc = ar5ivIframe.contentDocument;
+                if (!doc || !doc.body || (!doc.body.childElementCount && !doc.body.textContent.trim())) {
+                    return false;
+                }
+                return !doc.querySelector('meta[name="arxivbot-error"]');
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function showPaperError() {
+            paperLoading.style.display = 'none';
+            ar5ivIframe.style.display = 'none';
+            paperError.style.display = 'flex';
+        }
+
+        function setupResize() {
+            let isResizing = false;
+            let startX, startWidth;
+
+            resizeHandle.addEventListener('mousedown', function(e) {
+                isResizing = true;
+                startX = e.clientX;
+                startWidth = paperPane.offsetWidth;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (!isResizing) return;
+
+                const diff = e.clientX - startX;
+                const newWidth = Math.max(200, Math.min(startWidth + diff, window.innerWidth - 300));
+                paperPane.style.width = newWidth + 'px';
+                paperPane.style.flex = 'none';
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (isResizing) {
+                    isResizing = false;
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                }
+            });
+        }
+
+        function setupToggle() {
+            togglePaperBtn.addEventListener('click', function() {
+                setPaperCollapsed(!paperPane.classList.contains('collapsed'));
+            });
+
+            // A quote link highlights a passage in the paper, so the paper has to
+            // be visible. Capture phase: runs before quote-highlighter.js's handler.
+            document.addEventListener('click', function(e) {
+                if (e.target.closest && e.target.closest('.quote-link')) {
+                    setPaperCollapsed(false);
+                }
+            }, true);
+        }
+
+        function setPaperCollapsed(collapsed) {
+            paperPane.classList.toggle('collapsed', collapsed);
+            resizeHandle.classList.toggle('hidden', collapsed);
+            togglePaperBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
+
+        function autoResize() {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + 'px';
+        }
+
+        async function checkStatus() {
+            try {
+                const response = await fetch(`/api/status/${paperId}`);
+                const data = await response.json();
+
+                if (data.status === 'complete') {
+                    statusBanner.style.display = 'none';
+                    statusRetryBtn.style.display = 'none';
+                    messageInput.disabled = false;
+                    sendBtn.disabled = false;
+                } else if (data.status === 'error') {
+                    statusBanner.style.display = 'block';
+                    statusText.textContent = data.error || 'Failed to load this paper.';
+                    progressFill.style.width = '0%';
+                    statusRetryBtn.style.display = 'inline-block';
+                    statusRetryBtn.disabled = false;
+                } else {
+                    statusBanner.style.display = 'block';
+                    statusRetryBtn.style.display = 'none';
+                    statusText.textContent = getStatusMessage(data.status);
+                    progressFill.style.width = `${data.progress}%`;
+                    // Check again in 2 seconds
+                    setTimeout(checkStatus, 2000);
+                }
+            } catch (error) {
+                console.error('Status check failed:', error);
+            }
+        }
+
+        async function retryIndexing() {
+            statusRetryBtn.disabled = true;
+            statusText.textContent = getStatusMessage('starting');
+            try {
+                await fetch(`/api/index/${paperId}`, { method: 'POST' });
+            } catch (error) {
+                console.error('Retry indexing failed:', error);
+            }
+            checkStatus();
+        }
+
+        // GET /api/status is read-only; this POST is what starts indexing on page load.
+        async function startIndexing() {
+            try {
+                await fetch(`/api/index/${paperId}?auto=1`, { method: 'POST' });
+            } catch (error) {
+                console.error('Start indexing failed:', error);
+            }
+            checkStatus();
+        }
+
+        function getStatusMessage(status) {
+            const messages = {
+                'not_started': 'Preparing...',
+                'starting': 'Starting...',
+                'fetching': 'Fetching paper...',
+                'downloading': 'Downloading TeX source...',
+                'extracting': 'Extracting TeX files...',
+                'complete': 'Ready!'
+            };
+            return messages[status] || 'Processing...';
+        }
+
+        function addErrorWithRetry(errorText, messageToRetry) {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            const content = document.createElement('div');
+            content.className = 'message-content error-content';
+            content.textContent = errorText;
+            const btn = document.createElement('button');
+            btn.className = 'retry-btn';
+            btn.textContent = 'Retry';
+            btn.addEventListener('click', () => retryMessage(btn, messageToRetry));
+            content.appendChild(btn);
+            div.appendChild(content);
+            messagesContainer.appendChild(div);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function retryMessage(btn, message) {
+            // Remove the error message containing this button
+            const errorMsg = btn.closest('.message');
+            if (errorMsg) errorMsg.remove();
+
+            // Re-send the message (don't re-add user bubble, it's already there)
+            await doSendMessage(message, false);
+        }
+
+        async function sendMessage(event) {
+            event.preventDefault();
+
+            const message = messageInput.value.trim();
+            if (!message) return false;
+
+            await doSendMessage(message, true);
+            return false;
+        }
+
+        async function doSendMessage(message, addUserBubble) {
+            if (addUserBubble) {
+                addMessage('user', message);
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+            }
+
+            messageInput.disabled = true;
+            sendBtn.disabled = true;
+
+            // Remove welcome message if present
+            const welcome = document.querySelector('.welcome-message');
+            if (welcome) welcome.remove();
+
+            // Add loading indicator
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message assistant loading';
+            loadingDiv.innerHTML = '<div class="message-content"><span class="dots">...</span></div>';
+            messagesContainer.appendChild(loadingDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            try {
+                const response = await fetch('/api/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        paper_id: paperId,
+                        chat_slug: chatSlug,
+                        message: message,
+                        level: 'legacy',
+                    }),
+                });
+
+                if (!response.ok) {
+                    if (response.status === 429) {
+                        // Rate limited - show user-friendly message
+                        const data = await response.json();
+                        const retryAfter = data.retry_after || 60;
+                        loadingDiv.remove();
+                        addErrorWithRetry(
+                            `Rate limited — please wait a moment before trying again.`,
+                            message
+                        );
+                    } else {
+                        const data = await response.json();
+                        // 422 validation errors carry a list of {msg} objects
+                        const detail = Array.isArray(data.detail)
+                            ? data.detail.map(d => d.msg).join('; ')
+                            : data.detail;
+                        loadingDiv.remove();
+                        addErrorWithRetry(`Error: ${detail || 'Failed to get response'}`, message);
+                    }
+                    messageInput.disabled = false;
+                    sendBtn.disabled = false;
+                    messageInput.focus();
+                    return;
+                }
+
+                // Remove loading indicator and create assistant message div
+                loadingDiv.remove();
+                const assistantDiv = document.createElement('div');
+                assistantDiv.className = 'message assistant';
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                assistantDiv.appendChild(contentDiv);
+                messagesContainer.appendChild(assistantDiv);
+
+                // Read SSE stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let hasError = false;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = JSON.parse(line.slice(6));
+
+                            if (data.type === 'meta') {
+                                // Sent only after the turn is saved; update slug and URL if new chat
+                                if (!chatSlug && data.chat_slug) {
+                                    chatSlug = data.chat_slug;
+                                    history.pushState({}, '', `/old/chat/${chatSlug}`);
+                                    shareBtn.style.display = 'inline-block';
+                                }
+                            } else if (data.type === 'chunk') {
+                                contentDiv.textContent += data.content;
+                                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                            } else if (data.type === 'error') {
+                                hasError = true;
+                                // Replace the partial response with an error + retry
+                                assistantDiv.remove();
+                                addErrorWithRetry(`Error: ${data.message}`, message);
+                            }
+                        }
+                    }
+                }
+
+                // Process quotes after streaming completes (only if no error)
+                if (!hasError && window.processQuotes) {
+                    window.processQuotes(assistantDiv);
+                }
+
+            } catch (error) {
+                loadingDiv.remove();
+                addErrorWithRetry(`Error: ${error.message}`, message);
+            }
+
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            messageInput.focus();
+        }
+
+        function addMessage(role, content, citations = []) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+
+            let html = `<div class="message-content">${escapeHtml(content)}</div>`;
+
+            if (citations && citations.length > 0) {
+                html += '<div class="citations">';
+                html += '<details><summary>Citations</summary>';
+                for (const citation of citations) {
+                    html += `<div class="citation">`;
+                    if (citation.page) {
+                        html += `<span class="page">Page ${citation.page}</span>`;
+                    }
+                    html += `<p>${escapeHtml(citation.text)}</p></div>`;
+                }
+                html += '</details></div>';
+            }
+
+            div.innerHTML = html;
+            messagesContainer.appendChild(div);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function shareChat() {
+            if (!chatSlug) return;
+
+            const url = `${window.location.origin}/old/chat/${chatSlug}`;
+
+            try {
+                await navigator.clipboard.writeText(url);
+                shareBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    shareBtn.textContent = 'Copy Chat Link';
+                }, 2000);
+            } catch (error) {
+                // Fallback for older browsers
+                prompt('Copy this link:', url);
+            }
+        }
+    </script>
+    <a class="old-ribbon" href="{{ new_url }}">Pre-redesign version &middot; see the new one &rarr;</a>
+    <style>
+        .old-ribbon { position: fixed; right: 12px; bottom: 12px; z-index: 2000; padding: 0.4rem 0.8rem; border-radius: 999px; background: #333; color: #fff; font: 600 0.8rem/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; opacity: 0.85; }
+        .old-ribbon:hover { opacity: 1; color: #fff; text-decoration: none; }
+    </style>
+</body>
+</html>

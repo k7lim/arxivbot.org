@@ -78,3 +78,12 @@ three jobs above. "Shipped" means it's in this pass.
   (`db.save_turn(copy_from_chat_id=...)`), so a failed answer writes nothing.
 - Message anchors (`id="m-<n>"`) are the message's index in the chat. Forks
   copy the history, so the indices stay the same.
+
+## Before/after demo
+
+The UI from before this pass (commit `fcf7394`) is still served for comparison:
+`/old`, `/old/abs/<id>` and `/old/chat/<slug>`. It uses its own copies in
+`templates/old/` and `static/old/` and sends `level: "legacy"`, which selects
+the original system prompt, so its answers match the old ones. Chats are shared
+between the two UIs. A ribbon on each old page links to the same page in the
+new UI. `/old` is `noindex` and disallowed in `robots.txt`.

@@ -124,9 +124,28 @@ def _abstract_description(abstract: str | None) -> str | None:
     return text
 
 
+# The UI as it was before the shapeof.ai pass (nf4) lives under /old, with its
+# own templates/old and static/old, for before/after demos. Same data and API.
+OLD_PREFIX = "/old"
+
+
+def _template(name: str, prefix: str) -> str:
+    return f"old/{name}" if prefix == OLD_PREFIX else name
+
+
 @router.get("/abs/{paper_id:path}", response_class=HTMLResponse)
 async def new_chat_page(request: Request, paper_id: str):
     """Render a new chat page for a paper."""
+    return await _new_chat_page(request, paper_id, prefix="")
+
+
+@router.get("/old/abs/{paper_id:path}", response_class=HTMLResponse)
+async def old_new_chat_page(request: Request, paper_id: str):
+    """New chat page in the pre-redesign UI."""
+    return await _new_chat_page(request, paper_id, prefix=OLD_PREFIX)
+
+
+async def _new_chat_page(request: Request, paper_id: str, prefix: str):
     # Validate paper ID
     parsed = parse_arxiv_id(paper_id)
     if not parsed:
@@ -134,7 +153,7 @@ async def new_chat_page(request: Request, paper_id: str):
 
     # Send non-canonical spellings (math.AG/0211159, 1706.03762V1) to the canonical URL
     if parsed.paper_id != paper_id:
-        return RedirectResponse(url=f"/abs/{parsed.paper_id}", status_code=301)
+        return RedirectResponse(url=f"{prefix}/abs/{parsed.paper_id}", status_code=301)
     paper_id = parsed.paper_id
 
     # Try to get paper metadata
@@ -177,12 +196,13 @@ async def new_chat_page(request: Request, paper_id: str):
 
     return templates.TemplateResponse(
         request,
-        "chat.html",
+        _template("chat.html", prefix),
         {
             "paper_id": paper_id,
             "paper_title": title,
             "paper_abstract": abstract,
             "paper_url": parsed.abs_url,
+            "new_url": f"/abs/{paper_id}",
             "chat_slug": None,
             "messages": [],
             "ask": _ask_prefill(request),
@@ -218,6 +238,16 @@ async def html_redirect(paper_id: str):
 @router.get("/chat/{slug}", response_class=HTMLResponse)
 async def load_chat_page(request: Request, slug: str):
     """Load an existing chat by its slug."""
+    return await _load_chat_page(request, slug, prefix="")
+
+
+@router.get("/old/chat/{slug}", response_class=HTMLResponse)
+async def old_load_chat_page(request: Request, slug: str):
+    """An existing chat in the pre-redesign UI."""
+    return await _load_chat_page(request, slug, prefix=OLD_PREFIX)
+
+
+async def _load_chat_page(request: Request, slug: str, prefix: str):
     chat = await chat_service.get_chat_by_slug(slug)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -250,12 +280,13 @@ async def load_chat_page(request: Request, slug: str):
 
     return templates.TemplateResponse(
         request,
-        "chat.html",
+        _template("chat.html", prefix),
         {
             "paper_id": paper_id,
             "paper_title": title,
             "paper_abstract": abstract,
             "paper_url": parsed.abs_url,
+            "new_url": f"/chat/{slug}",
             "chat_slug": slug,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "ask": _ask_prefill(request),
@@ -277,6 +308,16 @@ async def home_page(request: Request):
     )
 
 
+@router.get("/old", response_class=HTMLResponse)
+async def old_home_page(request: Request):
+    """The home page in the pre-redesign UI."""
+    return templates.TemplateResponse(
+        request,
+        _template("home.html", OLD_PREFIX),
+        {"meta_canonical": f"{_site_url()}/", "new_url": "/"},
+    )
+
+
 @router.get("/favicon.ico", include_in_schema=False)
 async def favicon_ico():
     """Serve the favicon at the root path browsers request by default."""
@@ -290,6 +331,7 @@ async def robots_txt():
         "User-agent: *\n"
         "Disallow: /api/\n"
         "Disallow: /ar5iv/\n"
+        "Disallow: /old\n"
         f"Sitemap: {_site_url()}/sitemap.xml\n"
     )
 

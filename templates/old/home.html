@@ -1,0 +1,74 @@
+{#- Snapshot of the UI before the shapeof.ai pass (fcf7394), served under /old
+    for before/after demos. Only paths changed; see routes/pages.py old_* routes. -#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArxivBot - Chat with arXiv Papers</title>
+    {% include "_meta.html" %}
+    <meta name="robots" content="noindex">
+    <link rel="stylesheet" href="/static/old/style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="/old" class="brand">ArxivBot</a>
+            <div class="nav-links">
+                <a href="https://arxiv.org" target="_blank">arXiv</a>
+                <a href="https://github.com/k7lim/arxivbot.org" target="_blank">GitHub</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+    <div class="home-container">
+        <div class="hero">
+            <h1>ArxivBot</h1>
+            <p class="tagline">Chat with any arXiv paper using AI</p>
+        </div>
+
+        <div class="how-to">
+            <h2>How to Use</h2>
+            <p>Add <strong>bot</strong> after <code>arxiv</code> in any arXiv paper URL.</p>
+            <p>Works with /abs/, /pdf/ and /html/ links.</p>
+
+            <div class="example">
+                <div class="url-transform">
+                    <span class="url old">https://arxiv.org/abs/1706.03762</span>
+                    <span class="arrow">→</span>
+                    <a class="url new" href="/old/abs/1706.03762">https://arxiv<strong>bot</strong>.org/abs/1706.03762</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="try-it">
+            <h2>Try It</h2>
+            {% include "old/_paper_form.html" %}
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <h3>Ask Questions</h3>
+                <p>Query the paper in natural language and get answers with citations</p>
+            </div>
+            <div class="feature">
+                <h3>Share Chats</h3>
+                <p>Every conversation gets a shareable permalink</p>
+            </div>
+            <div class="feature">
+                <h3>Multi-turn</h3>
+                <p>Continue the conversation with follow-up questions</p>
+            </div>
+        </div>
+    </div>
+    </main>
+
+    <script src="/static/old/paper-form.js"></script>
+    <a class="old-ribbon" href="{{ new_url }}">Pre-redesign version &middot; see the new one &rarr;</a>
+    <style>
+        .old-ribbon { position: fixed; right: 12px; bottom: 12px; z-index: 2000; padding: 0.4rem 0.8rem; border-radius: 999px; background: #333; color: #fff; font: 600 0.8rem/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; opacity: 0.85; }
+        .old-ribbon:hover { opacity: 1; color: #fff; text-decoration: none; }
+    </style>
+</body>
+</html>

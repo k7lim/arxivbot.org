@@ -560,6 +560,30 @@ LEVEL_INSTRUCTIONS = {
 
 FOLLOW_UP_HEADING = "**Ask next:**"
 
+# The system prompt from before the lay-reader pass (nf4), verbatim. Used by
+# the /old snapshot UI (level="legacy") so before/after demos are like for like.
+LEGACY_SYSTEM_PROMPT = """You are a helpful research assistant. Answer questions about the following scientific paper based on its source (LaTeX, or text extracted from its PDF).
+
+<paper>
+{content}
+</paper>
+
+Instructions:
+- Answer questions accurately based on the paper content
+- When referencing specific text from the paper, quote it using this exact format on its own line:
+  > "exact text from the paper"
+- Keep quotes concise (under 100 characters when possible)
+- Quote the exact wording from the paper, not a paraphrase
+- If something isn't in the paper, say so
+- Be concise but thorough
+
+Example response format:
+The authors propose a novel approach to optimization. As stated in the paper:
+> "our method achieves 95% accuracy on the benchmark"
+This represents a significant improvement over prior work."""
+
+
+
 
 def _build_messages(
     content: str,
@@ -568,11 +592,11 @@ def _build_messages(
     level: str = "plain",
 ) -> list[dict]:
     """Build the LLM message list for querying a paper."""
+    if level == "legacy":
+        system = LEGACY_SYSTEM_PROMPT.replace("{content}", content)
+        return _with_history(system, question, chat_history)
     audience = LEVEL_INSTRUCTIONS.get(level, LEVEL_INSTRUCTIONS["plain"])
-    messages = [
-        {
-            "role": "system",
-            "content": f"""You are a helpful research assistant. Answer questions about the following scientific paper based on its source (LaTeX, or text extracted from its PDF).
+    system = f"""You are a helpful research assistant. Answer questions about the following scientific paper based on its source (LaTeX, or text extracted from its PDF).
 
 <paper>
 {content}
@@ -598,10 +622,15 @@ This represents a significant improvement over prior work.
 {FOLLOW_UP_HEADING}
 - How does the benchmark measure accuracy?
 - What did earlier methods score?
-- Where does the method still fail?""",
-        }
-    ]
+- Where does the method still fail?"""
+    return _with_history(system, question, chat_history)
 
+
+def _with_history(
+    system: str, question: str, chat_history: list[dict] | None
+) -> list[dict]:
+    """System prompt, then recent history, then the new question."""
+    messages = [{"role": "system", "content": system}]
     if chat_history:
         for msg in chat_history[-10:]:  # Last 10 messages for context
             messages.append({"role": msg["role"], "content": msg["content"]})

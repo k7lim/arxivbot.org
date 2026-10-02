@@ -26,8 +26,9 @@ class ChatRequestBody(BaseModel):
     paper_id: str
     chat_slug: str | None = None
     message: str
-    # How the answer is pitched: everyday words (default) or the field's own terms
-    level: Literal["plain", "technical"] = "plain"
+    # How the answer is pitched: everyday words (default) or the field's own terms.
+    # "legacy" is the pre-nf4 prompt, used by the /old snapshot UI.
+    level: Literal["plain", "technical", "legacy"] = "plain"
     # Continue chat_slug as a new copy instead of appending to it (someone else's shared chat)
     fork: bool = False
 
